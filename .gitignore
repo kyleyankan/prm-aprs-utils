@@ -1,0 +1,25 @@
+# settings with credentials: never commit
+aprs-pi/aprs.env
+aprs-mapimage/.env
+.env
+
+# runtime data and logs
+aprs-pi/data/
+aprs-pi/logs/
+aprs-pi/run/
+data/
+
+# test output
+aprs-mapimage/tests/**/data*/
+aprs-mapimage/tests/**/tdata/
+aprs-mapimage/tests/**/*.png
+aprs-mapimage/tests/**/logins.txt
+aprs-mapimage/tests/**/err*.txt
+aprs-mapimage/tests/**/*.pid
+aprs-mapimage/tests/**/fp
+aprs-mapimage/tests/**/sp
+
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/

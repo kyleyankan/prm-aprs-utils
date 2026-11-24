@@ -1,0 +1,15 @@
+services:
+  aprs-mapimage:
+    build: .
+    image: aprs-mapimage:latest
+    container_name: aprs-mapimage
+    restart: unless-stopped
+    init: true                     # forwards stop signals so the state is saved on shutdown
+    env_file: .env                 # copy .env.example to .env and fill it in
+    ports:
+      - "8083:8080"                # builder page and pictures: http://<host>:8083/
+    volumes:
+      - mapimage-data:/data        # heard stations, presets, map and symbol caches survive rebuilds
+
+volumes:
+  mapimage-data:

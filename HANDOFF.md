@@ -1,0 +1,168 @@
+# Handoff: APRS object feeds and APRS map images
+
+Written 2026-11-24 when the work moved from a Claude chat to Claude Code. The chat built both
+projects over about two weeks of November 2026; this file records what exists, why it is the way it
+is, what was tried and dropped, and what is still open.
+
+## 1. Goals
+
+**aprs-pi — public incidents as APRS objects.** Put live public-safety, traffic and weather
+information on the APRS map around southeastern Pennsylvania and South Jersey, as objects sent from
+**K3YLE-15**: county fire/EMS/traffic calls, state 511 incidents, closures and road work, and NWS
+warnings and storms. Each incident gets a stable name and a meaningful symbol, its text is kept
+current, and it is killed when the incident ends.
+
+**aprs-mapimage — pictures of what is on the air.** A small self-hosted service that draws what
+APRS-IS carries around a chosen point as a picture an e-paper display or dashboard can fetch from a
+fixed address: stations, objects, paths, messages, over a real base map, anywhere in the world.
+
+## 2. Architecture
+
+### aprs-pi (Raspberry Pi, no Docker)
+
+```
+feeds ──> aprs_<feed>.py (one process each) ──> APRS-IS (as K3YLE-15, only when SEND=1)
+                 │  state: data/*_live_state.json (objects on the air; Montgomery's is aprs_live_state.json)
+aprs_ctl.sh ─────┘  supervisor: starts/stops/restarts, crash back-off, logs, reads aprs.env before every launch
+aprs_web.py   web map/editor on :8080 + /eink.png /map.png pictures (aprs_eink.py) + other people's
+              objects via aprs_listen.py; edits/deletes go through aprs_overrides.py
+aprs_objects.py  stand-alone cleanup: find and kill leftover objects for a callsign (uses aprs.fi)
+```
+
+| Script | Source | Notes |
+|---|---|---|
+| `aprs_montco.py` | Montgomery County live CAD (RSS) | Geocoded (Google, cached); no incident ID, so names are a hash |
+| `aprs_chesco.py` | Chester County WebCAD (public page, three tables) | Names from the CAD incident number tail |
+| `aprs_bucks.py` | Bucks County 911 Incident Report (public Power BI) | Fire and traffic only; asks only for the fields the report shows; names `TAGB<hash>` |
+| `aprs_nj511.py` | 511NJ RSS | Replaced `aprs_njta.py` (retired). County by point-in-polygon on NWS county zones (cached `nj_counties.json`); types incident, closure, delay by default; only events whose written dates include today; `--county Cape May` works unquoted |
+| `aprs_pa511.py` | PennDOT RCRS (511PA) JSON | Free PennDOT login from `aprs.env`; names from EventID in base 36; killed when the road reopens; `--dump` shows raw fields |
+| `aprs_nws.py` | api.weather.gov alerts, NHC | Storm objects with movement, multiline warning shapes, VTEC-based names (`SVRPHI123`); `parse_home()` accepts many lat/lon spellings |
+
+Shared rules in every feed script: one poll every 2 minutes by default; the full set of wanted objects
+is re-sent each poll; anything in the state file that is no longer wanted gets a kill packet; objects
+older than 6 hours are killed even if still listed; a failed fetch kills nothing; an incident that
+fails to geocode this time is left alone; state is written only after packets go out. Symbols come
+from `SYM_*` settings (`./aprs_ctl.sh symbols`); comments are fitted to `COMMENT_LENGTH` by
+abbreviating first and dropping the least important parts last; approximate geocodes end in `?`.
+
+### aprs-mapimage (Docker)
+
+```
+APRS-IS (receive only, own SSID) ──> aprs_listen.py ──┐
+OpenStreetMap Overpass + NWS zones ──> tiles.py ───────┤──> aprs_eink.py renderer ──> /map.png /eink.png /eink.bmp /p/NAME.png
+Natural Earth (shipped world.json.gz) ──> world.py ───┘
+aprs.fi (optional, on demand) ──> server.py locate()        builder page /  ·  /api/*  ·  presets
+```
+
+| File | Role |
+|---|---|
+| `app/server.py` | HTTP server (stdlib `ThreadingHTTPServer`), builder page (inline HTML/JS, Leaflet from unpkg), presets in `/data/presets.json`, follow logic, history store, aprs.fi lookup, sign-in, 15 s picture cache |
+| `app/aprs_listen.py` | APRS-IS client: several `r/` areas (home + presets), `b/`/`f/`/`o/` filters for followed stations/objects, paths, messages, history backfill from the APRS-IS history port, state saved in `/data/aprs_heard.json` |
+| `app/aprs_eink.py` | Pure-stdlib renderer (PNG/BMP writer, palette, fonts): base map, water fill, borders, symbols (hessu/aprs-symbols, cached), labels, object list, messages, old-position markers |
+| `app/tiles.py` | Base map in 0.25° tiles from Overpass (roads, rivers, towns, water outlines, coastline) and NWS county zones, downloaded ahead of time by a queue; `/data/basemap_tiles.json` |
+| `app/world.py` + `world.json.gz` | Natural Earth world layer: country/state borders always; highways, rivers, lakes, sea, cities when tiles don't cover the view |
+| `tools/build_world.py` | Rebuilds `world.json.gz` from Natural Earth GeoJSON |
+| `tests/` | Development harnesses (see its README) |
+
+Key endpoints: `/` builder, `/map.png` colour, `/eink.png` 1-bit, `/eink.bmp`, `/p/NAME.png|bmp`
+presets (query overrides), `/api/status`, `/api/aprs`, `/api/presets` (GET/POST/DELETE),
+`/api/follow?call=`, `/healthz` (always open).
+
+Settings (`.env`): `APRS_HOME`, `LISTEN_MILES`, `CALLSIGN` (own SSID), `TZ`, `NWS_CONTACT`,
+`ADMIN_USER`/`ADMIN_PASSWORD` (Basic sign-in for page and API), `IMAGE_KEY` (`?key=` on pictures),
+`HISTORY_DAYS` (30), `APRSFI_KEY`, `PUBLIC_URL`, `APRSFI_CACHE_MINUTES`, `PREFETCH_MILES`,
+`FORGET_MINUTES`, `TRAIL_MINUTES`, `EINK_OSM`, `EINK_COUNTIES`, `EINK_SYMBOLS`, `WORLD_MAP`,
+`APRS_BACKFILL`, `LOG_REQUESTS`.
+
+## 3. Key decisions and why
+
+- **Standard library only, both projects.** Simple installs on a Pi and a tiny Docker image; the
+  renderer writes PNG/BMP itself.
+- **aprs-pi runs directly on the Pi; aprs-mapimage is Docker.** The owner dropped Docker for the feed
+  scripts ("deploy it ourselves onto a Raspberry Pi"); the map server was asked for as a container.
+- **Stable names are the core rule.** Re-sending a name updates the marker; a new name makes a ghost.
+  IDs where feeds have them, deterministic hashes where they don't, salted in sorted order on collisions.
+- **Cautious kills.** Never kill on a failed fetch or geocode miss; persist state after sending; a
+  replacement script kills its predecessor's objects (NJ 511 retired the NJ Turnpike script this way).
+- **Supervisor re-reads `aprs.env` before every launch**, strips CRLF and checks syntax with `bash -n`,
+  so a bad line names the file and line instead of crashing later.
+- **Map server listens with its own SSID** and only warns (doesn't rewrite) when `CALLSIGN` has none:
+  it can't know which SSIDs are free.
+- **Tiles instead of one download per view** (0.25°, ~17 × 13 mi): a station being followed moves
+  without refetching, and tiles can be downloaded before anyone asks (home, presets, followed stations,
+  `PREFETCH_MILES`). Detailed OSM data is used only when **every** tile of the view is ready; otherwise
+  the Natural Earth layer is used, so the two never overlap.
+- **Sea from coastlines.** OSM has no ocean polygons. Coastline is drawn as walls, areas are flooded,
+  and each coastline piece votes (sea on its right) only when its two sides fall in different areas;
+  areas touching a loose coastline end (missing tile) are left unfilled rather than guessed. Bay
+  outlines never paint over areas the coastline says are land. Natural Earth coastline direction isn't
+  reliable, so its sea uses a point-in-land test against its land polygons instead.
+- **Following** (`follow=CALL` or object name): centre on the last position; APRS-IS `b/` + `f/`
+  (range around the station) + `o/` filters; presets follow permanently, ad hoc follows expire 24 h
+  after the last request.
+- **Old positions**: live → own history (every station/object heard, `HISTORY_DAYS`) → aprs.fi.
+  Anything older than 30 minutes or not live is drawn with a dashed box, an age tag, and
+  "OLD POSITION (VIA APRS.FI)" in the list.
+- **Weather stations hidden by default** (`_` symbol stations; `wx=1` shows them); objects with the
+  weather symbol are not affected.
+- **Sign-in** is HTTP Basic for the page and API; pictures stay open or use `IMAGE_KEY`, because
+  e-paper displays can't sign in. `/healthz` stays open for Docker.
+- **Host port 8083** in docker-compose (container still 8080).
+
+## 4. Rejected ideas and constraints to avoid
+
+- Docker for the Pi project (owner's choice: run it directly).
+- Keeping `aprs_njta.py` (retired for `aprs_nj511.py`; listed in `RETIRED` so the supervisor stops it).
+- One base-map download per exact view (refetches whenever a followed station moves) → tiles.
+- Using OSM ocean areas (they don't exist) or trusting Natural Earth coastline direction.
+- Filling sea across a coastline gap by guesswork → leave it blank until the tile arrives.
+- Silently appending an SSID to the map server's `CALLSIGN` → warn instead.
+- Preloading or background-refreshing aprs.fi, or querying it from the planner thread (against their
+  API rules) → only from picture/builder requests, cached.
+- Putting the owner's e-mail anywhere, or sending it to services unasked.
+- Getting around a site that blocks automated access (during development 511nj.org was read only
+  through the owner's own browser, never by evading a block).
+- Showing accented names as `?` → accents are stripped (QUEBEC), names with no Latin spelling skipped.
+- Security posture: the Pi web UI is internal-only by the owner's decision (no login). The public map
+  server is different and has sign-in plus a picture key.
+
+## 5. Current state
+
+Both projects are working and deployed by the owner: the feed scripts on the Pi (last packaged as
+`aprs-pi-1119.zip`, which this folder matches), the map server at https://aprs.phlm.sh/.
+
+```
+aprs-pi/          14 files: aprs_ctl.sh, install-service.sh, README.txt, 6 feed scripts, aprs_web.py,
+                  aprs_eink.py, aprs_listen.py, aprs_overrides.py, aprs_objects.py
+aprs-mapimage/    Dockerfile, docker-compose.yml, .env.example, .dockerignore, README.md,
+                  app/ (server.py, aprs_listen.py, aprs_eink.py, tiles.py, world.py, world.json.gz),
+                  tools/build_world.py, tests/
+```
+
+Blog drafts (claude.ai docs, private to the owner): "Drawing the Airwaves: A Self-Hosted APRS Map
+Image Server" (https://claude.ai/artifact/258poTWumCsSgrF8T1M297) and "From Dispatch Feeds to APRS
+Objects" (https://claude.ai/artifact/CnXmEhpeNqWms87DNDqH8r).
+
+## 6. Remaining tasks
+
+1. **Check the live paths the development sandbox could not reach**: aprs.fi lookups (needs
+   `APRSFI_KEY` and `PUBLIC_URL` in `.env`), sea/water fill on the real Jersey Shore and Delaware Bay
+   coastline, Natural Earth sea fill at the edges of real tiles.
+2. **Map server sign-in**: the credentials the owner expected were rejected by the live server
+   (pictures with the key worked). Check `ADMIN_USER`/`ADMIN_PASSWORD` in the server's `.env`.
+3. **Consolidate the shared modules** (`aprs_eink.py`, `aprs_listen.py`) or document which copy is
+   canonical; the mapimage copies are a superset but the Pi's `aprs_web.py` depends on its own.
+4. **Turn `aprs-mapimage/tests/` into a real test suite** (pytest or unittest, ports chosen
+   automatically, no fixed sandbox paths). aprs-pi has no tests in the repo.
+5. Offered but not built: colour the owner's own objects by feed in the map server (recognise
+   K3YLE-15 objects and their name tags) and draw NWS warning outlines there (parse multiline objects).
+6. Optional: put this repository on GitHub (create a private repo and push; never commit `aprs.env`
+   or `.env`).
+
+## 7. Open questions
+
+- Should the two projects share one renderer/listener package, and how is it deployed to the Pi?
+- Should old positions be shown for every object, not only followed ones?
+- Blog article 1 has an open comment: name the specific feeds, or keep it generic?
+- Memory: loading the world map peaks around 170 MB at start-up. Fine on a Pi 4 or server; is a
+  smaller build (fewer roads at low zoom) wanted for small hosts?
