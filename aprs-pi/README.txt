@@ -32,6 +32,7 @@ Sending to APRS-IS (one connection)
      ./aprs_ctl.sh logs send -f                        what was really sent, and why
      cd data && python3 ../aprs_send.py --callsign W3XYZ-9 --list
                                                        every object: last change, last send, next re-send
+     The web map shows the same for each object: when it was last sent and when it is sent again.
      aprs.env: EXTRA_send="--resend-minutes 20" changes the 26 minutes.
      If "send" is stopped, nothing reaches APRS-IS; the other services say so in their logs.
      Upgrading: copy the new files, then ./aprs_ctl.sh restart. Everything is sent once at the

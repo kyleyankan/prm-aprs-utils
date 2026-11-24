@@ -345,6 +345,8 @@ no connection. This is the safe test mode and the default.
 
 - **Map and editor** on port 8080: every object from the scripts' state files, with its source.
   There is no login, so it belongs on a trusted network only.
+- **Send times:** each object shows when it was last sent to APRS-IS and when an unchanged one
+  is sent again, read from the sender's `sender_state.json`.
 - **Edit and delete:** stored in `overrides.json`, which every feed script applies on its next
   poll, so a correction sticks even though the source still reports the original. The corrected
   packet or the kill is also handed to the sender at once.

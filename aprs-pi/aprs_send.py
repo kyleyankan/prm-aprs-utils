@@ -177,7 +177,8 @@ class Book:
             return
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"callsign": self.callsign, "saved": time.time(), "records": self.records}, f, indent=1)
+            json.dump({"callsign": self.callsign, "saved": time.time(), "resend": self.resend,
+                       "records": self.records}, f, indent=1)
         os.replace(tmp, self.path)
         self.dirty = False
 
@@ -252,6 +253,26 @@ class Book:
             if (not r["live"] and now - r["sent"] >= self.resend) or now - r["seen"] > FORGET_SECONDS:
                 del self.records[key]
                 self.dirty = True
+
+
+def send_times(path=None):
+    """For the web page: object name -> {sent, again, waiting, changed}, read from the sender's state file.
+    sent: when it last went to APRS-IS (None = not yet); again: the earliest time an unchanged object
+    will be re-sent (it goes out on the first hand-over after that); waiting: due but not sent yet."""
+    try:
+        with open(path or os.path.join(data_dir(), STATE_FILE)) as f:
+            raw = json.load(f)
+        resend = float(raw.get("resend") or RESEND_MINUTES * 60)
+        out = {}
+        for key, r in raw["records"].items():
+            if key.startswith("\x00") or not r.get("live"):
+                continue
+            sent = r.get("sent")
+            out[key.strip()] = {"sent": sent, "again": sent + resend if sent is not None else None,
+                                "waiting": bool(r.get("pending")), "changed": r.get("changed") or None}
+        return out
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
 
 
 # --------------------------------------------------------------------------

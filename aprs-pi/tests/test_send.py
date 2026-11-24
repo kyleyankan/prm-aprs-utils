@@ -125,6 +125,23 @@ class Rules(unittest.TestCase):
             self.assertEqual(aprs_send.Book("N0CALL-7", path).records, {})
 
 
+    def test_send_times_for_the_web_page(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sender_state.json")
+            book = aprs_send.Book(CALL, path)
+            book.offer(obj("FIRE1"), "test", 1000)
+            book.mark_sent("FIRE1    ", 1000)
+            book.offer(obj("FIRE2"), "test", 1000)                            # waiting, never sent
+            book.offer(obj("GONE1", live=False), "test", 1000)
+            book.mark_sent("GONE1    ", 1000)
+            book.offer(">a status line", "test", 1000)
+            book.save()
+            self.assertEqual(aprs_send.send_times(path), {
+                "FIRE1": {"sent": 1000, "again": 1000 + 26 * MIN, "waiting": False, "changed": 1000},
+                "FIRE2": {"sent": None, "again": None, "waiting": True, "changed": 1000}})
+            self.assertEqual(aprs_send.send_times(os.path.join(d, "missing.json")), {})
+
+
 class FakeAprsIs(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True

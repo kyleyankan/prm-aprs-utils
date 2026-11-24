@@ -142,8 +142,10 @@ def service_status():
 def snapshot():
     objects, sources = read_states()
     overrides = ov.load()
+    times = aprs_send.send_times() if ARGS.send else {}        # when each was last sent to APRS-IS
     live, suppressed = [], []
     for name, rec in objects.items():
+        rec["aprs_is"] = times.get(name.strip())
         e = overrides.get(name)
         if isinstance(e, dict) and e.get("deleted"):
             continue                                   # deleted here; the script kills it on its next poll
@@ -598,9 +600,18 @@ function symHtml(o){ const box=document.getElementById("o_sym");
 function icon(o){ const sh=symHtml(o);
   if(sh) return L.divIcon({className:"",html:`<div class="symw${o.edited?" ed":""}">${sh}<i style="background:${colorOf(o.source)}"></i></div>`,iconSize:[24,28],iconAnchor:[12,12]});
   return L.divIcon({className:"",html:`<div class="pin${o.edited?" ed":""}" style="background:${colorOf(o.source)}">${esc(tagOf(o.name))}</div>`,iconSize:null,iconAnchor:[18,11]});}
-function popup(o){return `<div class="pop"><b>${esc(o.name)}</b>${o.edited?'<span class="tag">edited</span>':""}<br>${esc(o.comment)||"<i>(no text)</i>"}<br>
+// When the object last went to APRS-IS and when an unchanged one is sent again (from aprs_send.py's records).
+function sentInfo(o){ if(!data.sending) return null; const t=o.aprs_is, now=Date.now()/1000;
+  if(!t||!t.sent) return {sent:t&&t.waiting?"waiting to be sent":"not sent yet", again:""};
+  const sent=`${hhmm(t.sent)} (${ago(t.sent)})`;
+  if(t.waiting) return {sent, again:"waiting to be sent now"};
+  return {sent, again:t.again<=now?"on the next poll":`after ${hhmm(t.again)}, or sooner if it changes`}; }
+function sentShort(o){ const s=sentInfo(o); if(!s) return ""; const t=o.aprs_is;
+  if(!t||!t.sent||t.waiting) return ` · ${s.again||s.sent}`;
+  return ` · sent ${hhmm(t.sent)}, again ${t.again<=Date.now()/1000?"next poll":"after "+hhmm(t.again)}`; }
+function popup(o){const s=sentInfo(o); return `<div class="pop"><b>${esc(o.name)}</b>${o.edited?'<span class="tag">edited</span>':""}<br>${esc(o.comment)||"<i>(no text)</i>"}<br>
 <span class="k">Source:</span> ${srcLink(o)}<br><span class="k">Position:</span> ${o.lat.toFixed(5)}, ${o.lon.toFixed(5)}<br>
-<span class="k">Last poll:</span> ${hhmm(o.updated)} · ${fiLink(o.name)}${o.expires?`<br><span class="k">Expires:</span> ${new Date(o.expires*1000).toLocaleString()}`:""}
+${s?`<span class="k">Last sent to APRS-IS:</span> ${s.sent}<br>${s.again?`<span class="k">Sends again:</span> ${s.again}<br>`:""}`:""}<span class="k">Last poll:</span> ${hhmm(o.updated)} · ${fiLink(o.name)}${o.expires?`<br><span class="k">Expires:</span> ${new Date(o.expires*1000).toLocaleString()}`:""}
 <div class="btns"><button onclick="startEdit(${js(o.name)})">Edit</button><button class="del" onclick="del(${js(o.name)})">Delete</button>
 ${o.edited?`<button onclick="restore(${js(o.name)})">Restore original</button>`:""}</div></div>`;}
 
@@ -639,7 +650,7 @@ function render(){
   // the list: nearest to the centre of the map first (re-sorted whenever the map is moved)
   const c=map.getCenter(), byDist=shown.map(o=>[o,away(c.lat,c.lng,o.lat,o.lon)]).sort((a,b)=>a[1].mi-b[1].mi);
   let h=byDist.map(([o,d])=>`<div class="row${sel===o.name?" sel":""}" style="border-left-color:${colorOf(o.source)}" onclick="select(${js(o.name)},true)">
-    <span class="nm">${esc(o.name)}</span>${o.edited?'<span class="tag">edited</span>':""}<span class="dist">${d.text}</span><div class="cm">${esc(o.comment)}</div><div class="sr">${esc(o.source_label)} · ${fiLink(o.name)}</div></div>`).join("");
+    <span class="nm">${esc(o.name)}</span>${o.edited?'<span class="tag">edited</span>':""}<span class="dist">${d.text}</span><div class="cm">${esc(o.comment)}</div><div class="sr">${esc(o.source_label)} · ${fiLink(o.name)}${sentShort(o)}</div></div>`).join("");
   if(!shown.length) h='<div class="row"><span class="sr">No live objects match.</span></div>';
   if(data.suppressed.length){h+=`<h2>Deleted here (${data.suppressed.length})</h2>`+data.suppressed.map(s=>`<div class="row"><span class="nm">${esc(s.name)}</span>
     <div class="cm">${esc(s.comment)}</div><div class="sr">${esc(s.source_label)} · deleted ${hhmm(s.ts)}</div>
