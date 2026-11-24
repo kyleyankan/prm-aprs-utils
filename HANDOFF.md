@@ -211,9 +211,15 @@ With the traffic of that day, "medium and above" would kill about 160 roadwork o
    `PHASE OK`); `signin`, `coast`, `marsh` and `world` contain no assertions; `test_server.py` needs
    Pillow, which is not in the standard library; `test_signin.py` writes to `/tmp/auth*`; server
    start-up can stall on a slow reverse-DNS lookup of the machine's address.
-5. **Radio side of `/api/packets`**: nothing yet polls it and keys a transmitter. It needs a small
-   program beside each radio that asks for packets near it (with `via=` its own callsign, a small
-   radius and `min=`), sends kills first, and paces what it sends for a 1200 baud channel.
+5. **Radio side of `/api/packets`**: `aprs-radio/aprs_radio.py` (2026-11-24) polls it and sends to a
+   KISS TNC over TCP or a serial port, with small default limits and print-only unless `--transmit`.
+   It passes its tests against a fake feeder and fake TNC and reads the Pi's real list, but **it has
+   never keyed a real radio or been decoded off the air**. Still open:
+   - Try it with Direwolf and a radio, and check another station decodes the third-party packets.
+   - **Reaching the feeder.** The Pi's web service has no login and can edit and delete objects, so
+     port 8080 must not be opened to other operators as it is. They need `/api/packets` only: put it
+     behind a reverse proxy that passes that one path, or add a read-only port to `aprs_web.py`.
+   - `APZIFD` is an experimental destination; register a proper one if the script is published.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

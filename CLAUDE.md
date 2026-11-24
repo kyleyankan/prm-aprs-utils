@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Two related amateur-radio (APRS) projects by K3YLE. Read `HANDOFF.md` for the history, the
+Related amateur-radio (APRS) projects by K3YLE. Read `HANDOFF.md` for the history, the
 decisions behind the code and the open tasks before making changes. `aprs-pi/ARCHITECTURE.md`
 explains how the Pi's services fit together and where each feed's data comes from; keep it in step
 with the code.
@@ -8,6 +8,7 @@ with the code.
 | Folder | What it is | Where it runs |
 |---|---|---|
 | `aprs-pi/` | Scripts that turn county dispatch, 511 traffic and NWS weather feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
+| `aprs-radio/` | One stand-alone script, `aprs_radio.py`, that other operators run: it polls the Pi's `/api/packets` and transmits the objects near them through their own KISS TNC | Anyone's machine beside a radio; nothing of ours runs it |
 | `aprs-mapimage/` | A stand-alone Docker service that listens to APRS-IS and draws map pictures (PNG/BMP) for e-paper and dashboards, with a builder web page and saved presets | Docker; live at https://aprs.phlm.sh/ (host port 8083 -> container 8080) |
 
 ## Ground rules
@@ -21,7 +22,8 @@ with the code.
   from the environment / `aprs.env` only, never from the command line (it shows in `ps`).
 - **The owner's e-mail address is private.** Never put it in code, examples or docs, and never send it
   to an outside service without asking (`NWS_CONTACT` is set by the owner in `aprs.env`).
-- **Never transmit while testing.** `SEND=0` (the default) prints packets only. Tests use fake
+- **Never transmit while testing.** `SEND=0` (the default) prints packets only; `aprs_radio.py`
+  prints only unless given `--transmit`. Tests use fake
   APRS-IS servers on localhost; nothing in a test may log in to the real APRS-IS with a passcode.
 - **Respect the data sources.** If a site refuses automated access, do not work around it.
   aprs.fi API: only on demand, answers cached (30 min default), back off after errors, a User-Agent
@@ -53,6 +55,10 @@ python3 aprs_pa511.py --help  # every feed script has --help; pa511 also has --d
 cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list   # each object: last change, last send
 cd tests && python3 -m unittest test_priority test_send test_web  # rating, sender and web API tests (fake APRS-IS on localhost)
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
+
+# aprs-radio (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
+python3 aprs-radio/aprs_radio.py --server http://PI:8080 --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+cd aprs-radio/tests && python3 -m unittest test_radio
 
 # aprs-mapimage
 cd aprs-mapimage && cp .env.example .env && docker compose up -d --build
