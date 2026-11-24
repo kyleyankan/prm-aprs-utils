@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Put the Incident Feeder's objects for your area on the air through your own TNC.
 
-  python3 aprs_radio.py --server http://FEEDER:8080 --callsign W3XYZ-10 --lat 40.12 --lon -75.34
+  python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34
   ... add --transmit to really send; without it the packets are only printed.
 
 Every --poll seconds (default 120) it asks the feeder's /api/packets for the objects within
@@ -331,7 +331,7 @@ class Gateway:
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Transmit the Incident Feeder's objects near you through a KISS TNC")
-    ap.add_argument("--server", required=True, help="the feeder's address, e.g. http://192.168.1.50:8080")
+    ap.add_argument("--server", required=True, help="the feeder's address, e.g. https://aprs-incidents.phlm.sh")
     ap.add_argument("--callsign", required=True, help="YOUR callsign-SSID, the station that transmits (e.g. W3XYZ-10)")
     ap.add_argument("--lat", type=float, required=True, help="latitude of the centre of your area, e.g. 40.12")
     ap.add_argument("--lon", type=float, required=True, help="longitude, negative for west, e.g. -75.34")

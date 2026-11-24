@@ -4,21 +4,55 @@
 for the objects near you, picks the ones worth sending, and transmits them through your TNC under
 your callsign. It needs only Python 3.8 or later; there is nothing to install.
 
+## From the feed source to your radio
+
+```mermaid
+flowchart TD
+    subgraph feeder[At the feeder, a Raspberry Pi]
+        src[1. Public source<br>county dispatch, 511 traffic, weather service]
+        feed[2. Feed script<br>builds the object: name, position, text]
+        sender[3. Sender<br>sends it to APRS-IS and records what it sent]
+        api["4. Web service: /api/packets<br>lists sent objects near any point, ranked"]
+        src --> feed --> sender --> api
+    end
+    subgraph station[At your station]
+        ask[5. aprs_radio.py asks the feeder<br>every 2 minutes: your position and radius]
+        keep[6. Keeps the few that matter<br>medium importance and up, ten at most]
+        decide{"7. Does it need sending now?<br>new, changed, 30 minutes old, or a kill"}
+        wait[Nothing sent for this object]
+        tnc[8. KISS TNC<br>Direwolf, or a hardware TNC on a serial port]
+        radio([9. Your radio, on 144.39 MHz<br>third-party packets under your callsign])
+        ask --> keep --> decide
+        decide -->|yes| tnc --> radio
+        decide -->|no| wait
+    end
+    api -->|"the list, as JSON"| ask
+```
+
+Steps 1 to 4 happen at the feeder whether or not anyone is listening. Steps 5 to 9 run at your
+station, and only when you start the script. Without `--transmit`, step 8 prints the packet
+instead of sending it.
+
 ## Before you start
 
 - **A licence that covers what you transmit.** Your station sends these packets, so you are its
   control operator.
 - **A KISS TNC.** A software TNC such as Direwolf with its KISS TCP port on (the default, 8001), or
   a hardware TNC in KISS mode on a serial port.
-- **The feeder's address**, from whoever runs it, in the form `http://host:8080`.
+- **The feeder's address.** K3YLE's feeder is at `https://aprs-incidents.phlm.sh`. Another feeder's operator will give you
+  theirs.
 - **Your position** as a latitude and longitude, and a radius in miles.
+
+What the feeder's operator sees: each request carries your callsign, the position and radius you
+ask for, and your internet address. The feeder keeps those for 7 days and shows them on its
+operator's map.
 
 ## Try it without transmitting
 
 Without `--transmit` the script only prints what it would send. Start here:
 
 ```sh
-python3 aprs_radio.py --server http://FEEDER:8080 --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
 ```
 
 Each line shows the reason (`new`, `changed`, `refresh`, `kill` or `dropped`) and the packet.
@@ -29,10 +63,10 @@ Add `--transmit` once the list looks right.
 
 ```sh
 # Direwolf or another software TNC on this machine
-python3 aprs_radio.py --server http://FEEDER:8080 --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
+python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
 
 # a hardware TNC in KISS mode (Linux or macOS)
-python3 aprs_radio.py --server http://FEEDER:8080 --callsign W3XYZ-10 --lat 40.12 --lon -75.34 \
+python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 \
     --kiss-serial /dev/ttyUSB0 --baud 9600 --transmit
 ```
 
@@ -92,7 +126,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=/home/pi/aprs-radio
-ExecStart=/usr/bin/python3 aprs_radio.py --server http://FEEDER:8080 --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
+ExecStart=/usr/bin/python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
 Restart=on-failure
 
 [Install]
