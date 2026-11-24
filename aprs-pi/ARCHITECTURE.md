@@ -80,7 +80,7 @@ Every feed script runs the same loop, by default every 120 seconds.
 sequenceDiagram
     participant Src as Source
     participant Feed as Feed script
-    participant Box as data/outbox/
+    participant Q as data/outbox/
     participant Send as aprs_send.py
     participant IS as APRS-IS
 
@@ -88,9 +88,9 @@ sequenceDiagram
     Src-->>Feed: incidents, events or alerts
     Note over Feed: filter, place on the map,<br>name, write the text,<br>apply web corrections
     Note over Feed: anything in its state file that is<br>no longer wanted becomes a kill packet
-    Feed->>Box: one file with every packet
+    Feed->>Q: one file with every packet
     Note over Feed: only now update *_live_state.json
-    Send->>Box: pick the file up (within a second)
+    Send->>Q: pick the file up (within a second)
     Note over Send: for each packet: new, changed,<br>a kill, or last sent 26+ min ago?
     Send->>IS: only the packets that are due
     Note over Send: record what was sent and when
