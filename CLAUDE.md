@@ -1,7 +1,9 @@
 # CLAUDE.md
 
 Two related amateur-radio (APRS) projects by K3YLE. Read `HANDOFF.md` for the history, the
-decisions behind the code and the open tasks before making changes.
+decisions behind the code and the open tasks before making changes. `aprs-pi/ARCHITECTURE.md`
+explains how the Pi's services fit together and where each feed's data comes from; keep it in step
+with the code.
 
 | Folder | What it is | Where it runs |
 |---|---|---|

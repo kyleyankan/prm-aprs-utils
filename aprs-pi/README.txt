@@ -70,3 +70,4 @@ Other tools
      python3 aprs_objects.py --callsign W3XYZ-9 --aprsfi-key KEY    find/kill leftover objects
 
 Files: aprs.env = settings, data/ = object state and caches, logs/ = logs.
+How it all fits together, and where each feed's data comes from: ARCHITECTURE.md
