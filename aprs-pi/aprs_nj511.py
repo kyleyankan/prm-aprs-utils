@@ -39,7 +39,6 @@ import json
 import math
 import os
 import re
-import socket
 import sys
 import time
 import urllib.error
@@ -48,13 +47,14 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import aprs_send                   # hands packets to the one program that sends to APRS-IS
+
 try:
     import aprs_overrides            # edits/deletes made in the web UI (optional)
 except ImportError:
     aprs_overrides = None
 
 FEED_URL = "https://511nj.org/client/rest/rss/RSSAllNJActiveEvents"
-APRS_IS_HOST, APRS_IS_PORT = "rotate.aprs2.net", 14580
 STATUS_TEXT = "NJ traffic events: 511NJ (511nj.org)"
 STATE_FILE = "nj511_live_state.json"
 OLD_NJTA_STATE = "njta_live_state.json"
@@ -576,38 +576,8 @@ def save_state(path, callsign, live):
     os.replace(tmp, path)
 
 
-def aprs_passcode(call):
-    call = call.split("-")[0].upper()
-    h = 0x73E2
-    for i in range(0, len(call), 2):
-        h ^= ord(call[i]) << 8
-        if i + 1 < len(call):
-            h ^= ord(call[i + 1])
-    return h & 0x7FFF
-
-
-class AprsIS:
-    def __init__(self, call, passcode):
-        self.call, self.passcode, self.sock = call, passcode, None
-
-    def connect(self):
-        self.sock = socket.create_connection((APRS_IS_HOST, APRS_IS_PORT), timeout=20)
-        self.sock.recv(512)
-        self.sock.sendall(f"user {self.call} pass {self.passcode} vers nj511-aprs 1.0\r\n".encode())
-        resp = self.sock.recv(512).decode(errors="replace")
-        if "verified" not in resp.lower() or "unverified" in resp.lower():
-            raise RuntimeError(f"APRS-IS login not verified: {resp.strip()}")
-        self.sock.sendall(f"{self.call}>APRS,TCPIP*:>{STATUS_TEXT}\r\n".encode())
-
-    def send(self, packet):
-        if self.sock is None:
-            self.connect()
-        self.sock.sendall(f"{self.call}>APRS,TCPIP*:{packet}\r\n".encode())
-
-    def close(self):
-        if self.sock:
-            self.sock.close()
-            self.sock = None
+# Sending is done by aprs_send.py (one APRS-IS connection for every script): this script
+# hands over each poll's packets with aprs_send.Outbox and never logs in itself.
 
 
 # --------------------------------------------------------------------------
@@ -682,6 +652,8 @@ def run_cycle(args, live, aprs_is, counties, retired):
         print(f"{args.callsign}>APRS,TCPIP*:{pkt}")
         if aprs_is:
             aprs_is.send(pkt)
+    if aprs_is:
+        aprs_is.flush()                # hand this poll's packets to aprs_send.py in one go
     sys.stdout.flush()
 
     # bookkeeping only after everything was sent, so a failed send repeats instead of losing kills
@@ -720,8 +692,8 @@ def main():
     ap.add_argument("--comment-length", type=int, default=COMMENT_LIMIT,
                     help=f"maximum characters of object text (default {COMMENT_LIMIT}; APRS 1.0 specifies 43)")
     ap.add_argument("--callsign", default="N0CALL", help="source callsign-SSID for the packets")
-    ap.add_argument("--passcode", type=int, help="APRS-IS passcode (default: computed from callsign)")
-    ap.add_argument("--send", action="store_true", help="actually send to APRS-IS (requires a real callsign)")
+    ap.add_argument("--passcode", type=int, help="ignored: aprs_send.py logs in to APRS-IS, not this script")
+    ap.add_argument("--send", action="store_true", help="hand the packets to aprs_send.py for sending (requires a real callsign)")
     ap.add_argument("--once", action="store_true", help="run one cycle and exit")
     ap.add_argument("--interval", type=int, default=120, help="seconds between polls (default 120, minimum 60)")
     args = ap.parse_args()
@@ -755,7 +727,7 @@ def main():
     if retired:
         print(f"# found {len(retired)} object(s) left by aprs_njta.py; they will be killed", file=sys.stderr)
     counties = Counties(args.county_cache, contact)
-    aprs_is = AprsIS(args.callsign, args.passcode or aprs_passcode(args.callsign)) if args.send else None
+    aprs_is = aprs_send.Outbox("nj511", args.callsign, status=STATUS_TEXT) if args.send else None
 
     try:
         while True:

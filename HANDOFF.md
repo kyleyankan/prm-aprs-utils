@@ -21,11 +21,14 @@ fixed address: stations, objects, paths, messages, over a real base map, anywher
 ### aprs-pi (Raspberry Pi, no Docker)
 
 ```
-feeds ──> aprs_<feed>.py (one process each) ──> APRS-IS (as K3YLE-15, only when SEND=1)
-                 │  state: data/*_live_state.json (objects on the air; Montgomery's is aprs_live_state.json)
+feeds ──> aprs_<feed>.py (one process each) ──> data/outbox/ ──> aprs_send.py ──> APRS-IS
+                 │  state: data/*_live_state.json            (one login, as K3YLE-15, only when SEND=1)
 aprs_ctl.sh ─────┘  supervisor: starts/stops/restarts, crash back-off, logs, reads aprs.env before every launch
+aprs_send.py  the only program that logs in to APRS-IS to send (service "send", always enabled).
+              Sends an object when it is new, changed or killed, or last sent 26+ minutes ago.
 aprs_web.py   web map/editor on :8080 + /eink.png /map.png pictures (aprs_eink.py) + other people's
-              objects via aprs_listen.py; edits/deletes go through aprs_overrides.py
+              objects via aprs_listen.py; edits/deletes go through aprs_overrides.py and are handed
+              to aprs_send.py
 aprs_objects.py  stand-alone cleanup: find and kill leftover objects for a callsign (uses aprs.fi)
 ```
 
@@ -39,9 +42,21 @@ aprs_objects.py  stand-alone cleanup: find and kill leftover objects for a calls
 | `aprs_nws.py` | api.weather.gov alerts, NHC | Storm objects with movement, multiline warning shapes, VTEC-based names (`SVRPHI123`); `parse_home()` accepts many lat/lon spellings |
 
 Shared rules in every feed script: one poll every 2 minutes by default; the full set of wanted objects
-is re-sent each poll; anything in the state file that is no longer wanted gets a kill packet; objects
-older than 6 hours are killed even if still listed; a failed fetch kills nothing; an incident that
-fails to geocode this time is left alone; state is written only after packets go out. Symbols come
+is handed to `aprs_send.py` each poll (one file in `data/outbox/`); anything in the state file that is
+no longer wanted gets a kill packet; objects older than 6 hours are killed even if still listed; a
+failed fetch kills nothing and hands over nothing; an incident that fails to geocode this time is left
+alone; state is written only after the hand-over file is written.
+
+`aprs_send.py` (added 2026-11-24) decides what goes on the air. A packet is sent when the object is
+new, its text after the time stamp changed, it is a kill, or it was last sent `--resend-minutes` (26)
+or more ago. It only acts on what scripts hand over, so a stopped script's objects go quiet as they
+did before. What is due while APRS-IS is unreachable waits in `data/sender_state.json` and goes out
+after the next login; a waiting live object nobody has asked for in 30 minutes is dropped, a waiting
+kill never is. Packets sent since the server was last heard from are sent again when a connection
+turns out to be dead. A hand-over through files was chosen over a local socket: nothing listens on
+a port, it needs no retry logic in the scripts, and hand-overs survive a restart of either side.
+Still on their own connections: the receive-only listener in `aprs_web.py` (`aprs_listen.py`) and
+the hand-run cleanup tool `aprs_objects.py`. Symbols come
 from `SYM_*` settings (`./aprs_ctl.sh symbols`); comments are fitted to `COMMENT_LENGTH` by
 abbreviating first and dropping the least important parts last; approximate geocodes end in `?`.
 
@@ -132,16 +147,22 @@ Both projects are working and deployed by the owner: the feed scripts on the Pi 
 `aprs-pi-1119.zip`, which this folder matches), the map server at https://aprs.phlm.sh/.
 
 ```
-aprs-pi/          14 files: aprs_ctl.sh, install-service.sh, README.txt, 6 feed scripts, aprs_web.py,
-                  aprs_eink.py, aprs_listen.py, aprs_overrides.py, aprs_objects.py
+aprs-pi/          aprs_ctl.sh, install-service.sh, README.txt, 6 feed scripts, aprs_send.py, aprs_web.py,
+                  aprs_eink.py, aprs_listen.py, aprs_overrides.py, aprs_objects.py, tests/test_send.py
 aprs-mapimage/    Dockerfile, docker-compose.yml, .env.example, .dockerignore, README.md,
                   app/ (server.py, aprs_listen.py, aprs_eink.py, tiles.py, world.py, world.json.gz),
-                  tools/build_world.py, tests/
+                  tools/build_world.py, tools/sync_shared.py, tests/
 ```
 
 Blog drafts (claude.ai docs, private to the owner): "Drawing the Airwaves: A Self-Hosted APRS Map
 Image Server" (https://claude.ai/artifact/258poTWumCsSgrF8T1M297) and "From Dispatch Feeds to APRS
 Objects" (https://claude.ai/artifact/CnXmEhpeNqWms87DNDqH8r).
+
+**Not yet on the Pi (as of 2026-11-24):** the single sender (`aprs_send.py`, changed feed scripts,
+`aprs_web.py`, `aprs_ctl.sh`) and the synced `aprs_eink.py` / `aprs_listen.py`. `aprs_ctl.sh` could
+not be run on the Mac used for development (it needs Linux `stat -c` and `/proc`), so the new "send"
+service has only been syntax-checked there; watch `./aprs_ctl.sh status` and `logs send` on the
+first start.
 
 ## 6. Remaining tasks
 
@@ -150,10 +171,24 @@ Objects" (https://claude.ai/artifact/CnXmEhpeNqWms87DNDqH8r).
    coastline, Natural Earth sea fill at the edges of real tiles.
 2. **Map server sign-in**: the credentials the owner expected were rejected by the live server
    (pictures with the key worked). Check `ADMIN_USER`/`ADMIN_PASSWORD` in the server's `.env`.
-3. **Consolidate the shared modules** (`aprs_eink.py`, `aprs_listen.py`) or document which copy is
-   canonical; the mapimage copies are a superset but the Pi's `aprs_web.py` depends on its own.
+3. **Done 2026-11-24: shared modules consolidated.** `aprs-mapimage/app/aprs_eink.py` and
+   `aprs_listen.py` are the masters; `aprs-pi/` holds byte-identical copies made by
+   `aprs-mapimage/tools/sync_shared.py` (`--check` fails if they differ; `tests/shared/` runs it).
+   Symlinks were rejected (a broken link silently turns off pictures and listening, because
+   `aprs_web.py` ignores the `ImportError`), and so was a top-level `shared/` folder (Docker would
+   have to build from the repo root, putting `aprs-pi/aprs.env` in the build context).
+   What changes on the Pi once the new copies are installed there: `/api/aprs` gains `areas`;
+   `?title=` works; accented town names lose the accent instead of showing `?`; county lines are no
+   longer drawn on very wide views (beyond about 226 miles on the default e-ink picture, about 390
+   on colour). `aprs_heard.json` loads in both directions, so the old files can be put back.
+   **Not yet copied to the Pi.**
 4. **Turn `aprs-mapimage/tests/` into a real test suite** (pytest or unittest, ports chosen
-   automatically, no fixed sandbox paths). aprs-pi has no tests in the repo.
+   automatically, no fixed sandbox paths). aprs-pi has `tests/test_send.py` (unittest, fake APRS-IS
+   on localhost) for the sender only; the feed scripts have none. Known harness problems:
+   `follow/run.py` and `history/run.py` exit 0 even when an assertion fails (read the log for
+   `PHASE OK`); `signin`, `coast`, `marsh` and `world` contain no assertions; `test_server.py` needs
+   Pillow, which is not in the standard library; `test_signin.py` writes to `/tmp/auth*`; server
+   start-up can stall on a slow reverse-DNS lookup of the machine's address.
 5. Offered but not built: colour the owner's own objects by feed in the map server (recognise
    K3YLE-15 objects and their name tags) and draw NWS warning outlines there (parse multiline objects).
 6. Optional: put this repository on GitHub (create a private repo and push; never commit `aprs.env`
@@ -161,7 +196,6 @@ Objects" (https://claude.ai/artifact/CnXmEhpeNqWms87DNDqH8r).
 
 ## 7. Open questions
 
-- Should the two projects share one renderer/listener package, and how is it deployed to the Pi?
 - Should old positions be shown for every object, not only followed ones?
 - Blog article 1 has an open comment: name the specific feeds, or keep it generic?
 - Memory: loading the world map peaks around 170 MB at start-up. Fine on a Pi 4 or server; is a

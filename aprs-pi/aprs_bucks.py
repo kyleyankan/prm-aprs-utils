@@ -25,7 +25,6 @@ import hashlib
 import json
 import os
 import re
-import socket
 import sys
 import time
 import urllib.error
@@ -34,6 +33,8 @@ import urllib.request
 import zlib
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+import aprs_send                   # hands packets to the one program that sends to APRS-IS
 
 try:
     import aprs_overrides            # edits/deletes made in the web UI (optional)
@@ -49,7 +50,6 @@ KNOWN_MODEL_ID = 1439607        # the report's data model when this script was w
 COLUMNS = ["Incident_Number", "Incident_Type", "Dispatch_Time", "ExternalLocWMun",
            "Station", "Municipality_Name", "External_Lat", "External_Lon"]
 PREFIXES = {"Fire": "FD", "Traffic": "PD", "EMS": "ED"}     # incident-number prefix per category
-APRS_IS_HOST, APRS_IS_PORT = "rotate.aprs2.net", 14580
 USER_AGENT = "bucks-cad-aprs/1.0"
 EASTERN = ZoneInfo("America/New_York")
 STATE_FILE = "bucks_live_state.json"
@@ -453,38 +453,8 @@ def incident_packet(inc):
     return object_packet(inc.name, inc.lat, inc.lon, inc.when_utc, table, code, comment), (table, code, comment)
 
 
-def aprs_passcode(call):
-    call = call.split("-")[0].upper()
-    h = 0x73E2
-    for i in range(0, len(call), 2):
-        h ^= ord(call[i]) << 8
-        if i + 1 < len(call):
-            h ^= ord(call[i + 1])
-    return h & 0x7FFF
-
-
-class AprsIS:
-    def __init__(self, call, passcode):
-        self.call, self.passcode, self.sock = call, passcode, None
-
-    def connect(self):
-        self.sock = socket.create_connection((APRS_IS_HOST, APRS_IS_PORT), timeout=20)
-        self.sock.recv(512)  # server banner
-        login = f"user {self.call} pass {self.passcode} vers bucks-cad-aprs 1.0\r\n"
-        self.sock.sendall(login.encode())
-        resp = self.sock.recv(512).decode(errors="replace")
-        if "verified" not in resp.lower() or "unverified" in resp.lower():
-            raise RuntimeError(f"APRS-IS login not verified: {resp.strip()}")
-
-    def send(self, packet):
-        if self.sock is None:
-            self.connect()
-        self.sock.sendall(f"{self.call}>APRS,TCPIP*:{packet}\r\n".encode())
-
-    def close(self):
-        if self.sock:
-            self.sock.close()
-            self.sock = None
+# Sending is done by aprs_send.py (one APRS-IS connection for every script): this script
+# hands over each poll's packets with aprs_send.Outbox and never logs in itself.
 
 
 # --------------------------------------------------------------------------
@@ -523,6 +493,8 @@ def run_cycle(args, report, live, aprs_is):
         print(f"{args.callsign}>APRS,TCPIP*:{pkt}")
         if aprs_is:
             aprs_is.send(pkt)
+    if aprs_is:
+        aprs_is.flush()                # hand this poll's packets to aprs_send.py in one go
     sys.stdout.flush()
 
     # bookkeeping only after everything was sent, so a failed send repeats instead of losing kills
@@ -547,8 +519,8 @@ def main():
     ap.add_argument("--comment-length", type=int, default=COMMENT_LIMIT,
                     help=f"maximum characters of object text (default {COMMENT_LIMIT}; APRS 1.0 specifies 43)")
     ap.add_argument("--callsign", default="N0CALL", help="source callsign-SSID for the packets")
-    ap.add_argument("--passcode", type=int, help="APRS-IS passcode (default: computed from callsign)")
-    ap.add_argument("--send", action="store_true", help="actually send to APRS-IS (requires a real callsign)")
+    ap.add_argument("--passcode", type=int, help="ignored: aprs_send.py logs in to APRS-IS, not this script")
+    ap.add_argument("--send", action="store_true", help="hand the packets to aprs_send.py for sending (requires a real callsign)")
     ap.add_argument("--once", action="store_true", help="run one cycle and exit")
     ap.add_argument("--interval", type=int, default=120, help="seconds between polls (default 120, minimum 60)")
     args = ap.parse_args()
@@ -572,7 +544,7 @@ def main():
     live = load_state(args.state_file, args.callsign)
     if live:
         print(f"# restored {len(live)} live object(s) from {args.state_file}", file=sys.stderr)
-    aprs_is = AprsIS(args.callsign, args.passcode or aprs_passcode(args.callsign)) if args.send else None
+    aprs_is = aprs_send.Outbox("bucks", args.callsign) if args.send else None
 
     try:
         while True:

@@ -11,7 +11,9 @@
 #   ./aprs_ctl.sh symbols              add the APRS symbol settings to an existing aprs.env
 #
 # Changes to aprs.env take effect the next time a service starts (restart <service>).
-# Services: montco chesco bucks nj511 pa511 nws web   (web = map/editor on WEB_PORT, default 8080)
+# Services: send montco chesco bucks nj511 pa511 nws web   (web = map/editor on WEB_PORT, default 8080)
+#   send = aprs_send.py, the one program that logs in to APRS-IS; the others hand their packets to it.
+#   It is always enabled, because without it nothing reaches APRS-IS.
 #
 # The supervisor is the only thing that starts or kills service processes, so
 # commands typed here and the auto-restarter can never fight each other.
@@ -29,7 +31,7 @@ CONF="${APRS_CONF:-$BASE/aprs.env}"
 RUN="${APRS_RUN_DIR:-$BASE/run}"
 LOGS="${APRS_LOG_DIR:-$BASE/logs}"
 DATA="${APRS_DATA_DIR:-$BASE/data}"
-SERVICES=(montco chesco bucks nj511 pa511 nws web)
+SERVICES=(send montco chesco bucks nj511 pa511 nws web)   # send first: the others hand packets to it
 RETIRED=(njta)                 # old services: stopped if still running, never started
 
 # ---- defaults (environment variables win over these; aprs.env wins over both) ---------------------------------------
@@ -37,7 +39,8 @@ PYTHON="${PYTHON:-python3}"
 CALLSIGN="${CALLSIGN:-N0CALL}"          # your real callsign-SSID; required when SEND=1
 SEND="${SEND:-0}"                     # 0 = print packets only, 1 = send to APRS-IS
 COMMENT_LENGTH="${COMMENT_LENGTH:-67}"          # use 43 if clients truncate/drop objects
-ENABLED="${ENABLED:-montco chesco bucks nj511 pa511 nws web}"
+ENABLED="${ENABLED:-send montco chesco bucks nj511 pa511 nws web}"
+INTERVAL_send="${INTERVAL_send:-0}"
 INTERVAL_montco="${INTERVAL_montco:-120}"
 INTERVAL_chesco="${INTERVAL_chesco:-120}"
 INTERVAL_bucks="${INTERVAL_bucks:-120}"
@@ -45,6 +48,7 @@ INTERVAL_nj511="${INTERVAL_nj511:-120}"
 INTERVAL_pa511="${INTERVAL_pa511:-120}"
 INTERVAL_nws="${INTERVAL_nws:-120}"
 INTERVAL_web="${INTERVAL_web:-0}"
+EXTRA_send="${EXTRA_send:-}"              # e.g. --resend-minutes 26
 EXTRA_montco="${EXTRA_montco:-}"            # extra arguments appended for that service
 EXTRA_chesco="${EXTRA_chesco:-}"
 EXTRA_bucks="${EXTRA_bucks:-}"
@@ -92,11 +96,13 @@ load_conf() {  # read aprs.env (again); called at start and before every service
     [ -n "${APRS_BACKFILL:-}" ] && export APRS_BACKFILL            # 0 = never fetch recent APRS history at start
     [ -n "${EINK_OSM:-}" ] && export EINK_OSM                    # 0 = no OpenStreetMap roads/rivers on /eink.png
     ENABLED="${ENABLED//njta/nj511}"          # aprs_njta.py was retired: 511NJ covers the Turnpike and Parkway
+    case " $ENABLED " in *" send "*) ;; *) ENABLED="send $ENABLED" ;; esac   # an aprs.env from before aprs_send.py existed
 }
 load_conf
 
 script_for() {
     case "$1" in
+        send)   echo aprs_send.py   ;;
         montco) echo aprs_montco.py ;; chesco) echo aprs_chesco.py ;;
         bucks)  echo aprs_bucks.py  ;;
         nj511)  echo aprs_nj511.py  ;; pa511)  echo aprs_pa511.py  ;;
@@ -508,12 +514,16 @@ cmd_init() {
 # Your amateur callsign-SSID. Required when SEND=1 (N0CALL is refused).
 CALLSIGN="N0CALL"
 # 0 = print packets only (safe test mode), 1 = really send to APRS-IS.
+# With SEND=1 the services hand their packets to the "send" service (aprs_send.py), the only
+# one that logs in to APRS-IS.  It sends an object when it is new, changed or killed, and
+# re-sends an unchanged one every 26 minutes.
 SEND=0
 # 67 is generous; use 43 if clients truncate or drop the objects.
 COMMENT_LENGTH=67
 
 # Which services to run (remove any you don't want).
-ENABLED="montco chesco bucks nj511 pa511 nws web"
+# "send" (the APRS-IS sender) always runs, listed here or not.
+ENABLED="send montco chesco bucks nj511 pa511 nws web"
 WEB_PORT=8080                     # web map/editor: http://this-machine:8080/ (no login - internal use only)
 
 # Credentials
@@ -543,6 +553,7 @@ INTERVAL_nws=120
 #   EXTRA_chesco="--ignore-robots"     # only if YOU decide that is appropriate
 #   EXTRA_nws="--radius-miles 200 --min-severity Severe"
 #   EXTRA_nj511="--county Camden,Burlington,Gloucester --types incident,closure,delay"
+EXTRA_send=""                     # e.g. "--resend-minutes 20"
 EXTRA_montco=""
 EXTRA_chesco=""
 EXTRA_bucks=""
@@ -563,7 +574,7 @@ EOF
     echo "Created $CONF - edit it (callsign, API key, PennDOT login), then run: $0 start"
 }
 
-usage() { sed -n '2,17p' "$SELF" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,19p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 case "${1:-}" in
     init)    cmd_init ;;

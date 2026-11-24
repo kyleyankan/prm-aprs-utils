@@ -9,12 +9,14 @@ else the current folder) and shows each object with the source it came from.
 Edit (text, position) and Delete are stored in overrides.json, which every feed
 script applies on its next poll, so a correction sticks even though the source
 still reports the original.  With --send and --callsign the corrected object (or
-the kill) is ALSO transmitted immediately, so the APRS map changes right away.
+the kill) is ALSO handed to aprs_send.py immediately, so the APRS map changes right away.
 "Restore" removes the correction and the source's own data returns on the next poll.
 
 "New object" creates your own object (name, symbol, text, position, optional expiry).
-Those are kept in custom_live_state.json and, with --send, transmitted at once and
-re-sent every --custom-interval seconds until you delete them or they expire.
+Those are kept in custom_live_state.json and, with --send, handed to aprs_send.py at once
+and again every --custom-interval seconds until you delete them or they expire; aprs_send.py
+sends them when they are new or changed and re-sends them every 26 minutes.
+This program never logs in to APRS-IS to send: aprs_send.py holds the one sending connection.
 
 GET /api/aprs returns everything ELSE heard on APRS-IS around your home position
 (other people's objects and items; add ?stations=1 for stations too).  The web map
@@ -41,7 +43,6 @@ import json
 import os
 import re
 import signal
-import socket
 import sys
 import threading
 import time
@@ -49,6 +50,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import aprs_overrides as ov
+import aprs_send                   # the one program that sends to APRS-IS; this one only hands packets over
 
 try:
     import aprs_eink                 # /eink.png for e-ink displays (optional file)
@@ -59,7 +61,6 @@ try:
 except ImportError:
     aprs_listen = None
 
-APRS_IS_HOST, APRS_IS_PORT = "rotate.aprs2.net", 14580
 PRUNE_HOURS = 72           # forget corrections this long after their object is gone
 
 # state file -> (key, label, link to the original data)
@@ -177,18 +178,8 @@ def prune(overrides, objects):
         del overrides[name]
 
 
-def passcode(call):
-    call = call.split("-")[0].upper()
-    h = 0x73E2
-    for i in range(0, len(call), 2):
-        h ^= ord(call[i]) << 8
-        if i + 1 < len(call):
-            h ^= ord(call[i + 1])
-    return h & 0x7FFF
-
-
 def transmit(pkt, quiet=False):
-    """Send one packet (or a list of packets) now.  Returns a short status string for the UI."""
+    """Hand one packet (or a list of packets) to aprs_send.py now.  Returns a short status string for the UI."""
     pkts = pkt if isinstance(pkt, list) else [pkt]
     lines = [f"{ARGS.callsign}>APRS,TCPIP*:{x}" for x in pkts]
     for line in lines:
@@ -196,24 +187,12 @@ def transmit(pkt, quiet=False):
     if not ARGS.send:
         return "saved (print-only mode: nothing was transmitted)"
     try:
-        s = socket.create_connection((APRS_IS_HOST, APRS_IS_PORT), timeout=15)
-        try:
-            s.recv(512)
-            s.sendall(f"user {ARGS.callsign} pass {ARGS.passcode or passcode(ARGS.callsign)} vers aprs-web 1.0\r\n".encode())
-            resp = s.recv(512).decode(errors="replace")
-            if "verified" not in resp.lower() or "unverified" in resp.lower():
-                return f"saved, but APRS-IS login was not verified ({resp.strip()[:60]})"
-            for line in lines:
-                s.sendall((line + "\r\n").encode("ascii", "replace"))
-                time.sleep(0.3)
-            time.sleep(0.5)
-        finally:
-            s.close()
-        return "saved and sent to APRS-IS"
+        aprs_send.hand_over("web", ARGS.callsign, pkts)        # aprs_send.py picks it up within a second
+        return "saved and handed to the sender for APRS-IS"
     except OSError as e:
         if not quiet:
-            print(f"# web: send failed: {e}", file=sys.stderr, flush=True)
-        return f"saved, but sending now failed ({e}); it will be sent again shortly"
+            print(f"# web: could not hand packets to the sender: {e}", file=sys.stderr, flush=True)
+        return f"saved, but it could not be handed to the sender ({e})"
 
 
 # ---- objects created in the web UI ----------------------------------------
@@ -311,7 +290,7 @@ def track_own():
 
 
 def custom_loop():
-    """Re-send custom objects periodically (clients forget objects that go quiet) and expire old ones."""
+    """Hand custom objects to the sender periodically (it re-sends them when due) and expire old ones."""
     last, ticks = 0.0, 0
     while True:
         try:
@@ -774,8 +753,8 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("WEB_PORT") or 8080))
     ap.add_argument("--bind", default=os.environ.get("WEB_BIND") or "0.0.0.0")
     ap.add_argument("--callsign", default="N0CALL")
-    ap.add_argument("--passcode", type=int)
-    ap.add_argument("--send", action="store_true", help="transmit edits/deletes to APRS-IS immediately")
+    ap.add_argument("--passcode", type=int, help="passcode for the receive-only listener (default: none needed)")
+    ap.add_argument("--send", action="store_true", help="hand edits/deletes to aprs_send.py for sending at once")
     ap.add_argument("--comment-length", type=int, default=67)
     ap.add_argument("--interval", type=int, default=0, help="ignored (accepted so aprs_ctl.sh can launch this)")
     ap.add_argument("--no-listen", action="store_true", help="do not listen to APRS-IS for other people's objects")
@@ -787,8 +766,9 @@ def main():
                     help="do not fetch recent APRS history when starting without a recent saved state")
     ap.add_argument("--trail-minutes", type=float, default=float(os.environ.get("APRS_TRAIL_MINUTES") or 180),
                     help="how much of each object's path to keep and draw (default 180)")
-    ap.add_argument("--custom-interval", type=int, default=600,
-                    help="seconds between re-sends of objects created in the UI (default 600, minimum 120)")
+    ap.add_argument("--custom-interval", type=int, default=120,
+                    help="seconds between hand-overs of objects created in the UI to aprs_send.py, which decides "
+                         "when a re-send is due (default 120, minimum 120)")
     ARGS = ap.parse_args()
     ARGS.callsign = ARGS.callsign.upper()
     if ARGS.send and ARGS.callsign.startswith("N0CALL"):

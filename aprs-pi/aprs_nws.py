@@ -42,7 +42,6 @@ import json
 import math
 import os
 import re
-import socket
 import sys
 import time
 import urllib.error
@@ -51,6 +50,8 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import aprs_send                   # hands packets to the one program that sends to APRS-IS
+
 try:
     import aprs_overrides            # edits/deletes made in the web UI (optional)
 except ImportError:
@@ -58,7 +59,6 @@ except ImportError:
 
 API = "https://api.weather.gov"
 NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
-APRS_IS_HOST, APRS_IS_PORT = "rotate.aprs2.net", 14580
 STATE_FILE = "nws_live_state.json"
 ZONE_CACHE = "nws_zone_cache.json"
 DEFAULT_HOME = "40.12,-75.34"          # Norristown, PA - change with --home / $APRS_HOME
@@ -828,37 +828,8 @@ def save_state(path, callsign, live):
     os.replace(tmp, path)
 
 
-def aprs_passcode(call):
-    call = call.split("-")[0].upper()
-    h = 0x73E2
-    for i in range(0, len(call), 2):
-        h ^= ord(call[i]) << 8
-        if i + 1 < len(call):
-            h ^= ord(call[i + 1])
-    return h & 0x7FFF
-
-
-class AprsIS:
-    def __init__(self, call, passcode):
-        self.call, self.passcode, self.sock = call, passcode, None
-
-    def connect(self):
-        self.sock = socket.create_connection((APRS_IS_HOST, APRS_IS_PORT), timeout=20)
-        self.sock.recv(512)
-        self.sock.sendall(f"user {self.call} pass {self.passcode} vers nws-aprs 1.0\r\n".encode())
-        resp = self.sock.recv(512).decode(errors="replace")
-        if "verified" not in resp.lower() or "unverified" in resp.lower():
-            raise RuntimeError(f"APRS-IS login not verified: {resp.strip()}")
-
-    def send(self, packet):
-        if self.sock is None:
-            self.connect()
-        self.sock.sendall(f"{self.call}>APRS,TCPIP*:{packet}\r\n".encode())
-
-    def close(self):
-        if self.sock:
-            self.sock.close()
-            self.sock = None
+# Sending is done by aprs_send.py (one APRS-IS connection for every script): this script
+# hands over each poll's packets with aprs_send.Outbox and never logs in itself.
 
 
 # --------------------------------------------------------------------------
@@ -949,6 +920,8 @@ def run_cycle(args, live, aprs_is, zones):
         print(f"{args.callsign}>APRS,TCPIP*:{pkt}")
         if aprs_is:
             aprs_is.send(pkt)
+    if aprs_is:
+        aprs_is.flush()                # hand this poll's packets to aprs_send.py in one go
     sys.stdout.flush()
 
     # bookkeeping only after everything was sent, so a failed send repeats instead of losing kills
@@ -988,8 +961,8 @@ def main():
     ap.add_argument("--comment-length", type=int, default=COMMENT_LIMIT,
                     help=f"maximum characters of object text (default {COMMENT_LIMIT}; APRS 1.0 specifies 43)")
     ap.add_argument("--callsign", default="N0CALL", help="source callsign-SSID for the packets")
-    ap.add_argument("--passcode", type=int, help="APRS-IS passcode (default: computed from callsign)")
-    ap.add_argument("--send", action="store_true", help="actually send to APRS-IS (requires a real callsign)")
+    ap.add_argument("--passcode", type=int, help="ignored: aprs_send.py logs in to APRS-IS, not this script")
+    ap.add_argument("--send", action="store_true", help="hand the packets to aprs_send.py for sending (requires a real callsign)")
     ap.add_argument("--once", action="store_true", help="run one cycle and exit")
     ap.add_argument("--interval", type=int, default=120, help="seconds between polls (default 120, minimum 60)")
     args = ap.parse_args()
@@ -1015,7 +988,7 @@ def main():
     if live:
         print(f"# restored {len(live)} live object(s) from {args.state_file}", file=sys.stderr)
     zones = Zones(args.zone_cache, args.zone_lookups)
-    aprs_is = AprsIS(args.callsign, args.passcode or aprs_passcode(args.callsign)) if args.send else None
+    aprs_is = aprs_send.Outbox("nws", args.callsign) if args.send else None
 
     try:
         while True:

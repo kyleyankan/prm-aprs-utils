@@ -38,8 +38,9 @@ keep source data intact, and minimise load on PennDOT's feeds.  There is no stat
 rate limit; this script polls every 120 s by default (minimum 60).  With --send it
 also posts an APRS status line crediting PennDOT.
 
-Default behaviour is PRINT ONLY.  To inject into APRS-IS you need a licensed
-amateur callsign:  --send --callsign YOURCALL   (passcode is computed for you).
+Default behaviour is PRINT ONLY.  With  --send --callsign YOURCALL  (a licensed amateur
+callsign) each poll's packets are handed to aprs_send.py, the one program that logs in to
+APRS-IS; it sends what is new, changed or killed, and re-sends the rest every 26 minutes.
 
 Object lifetime (APRS objects have no built-in time-to-live)
   * Every object sent is remembered in pa511_live_state.json.  On the next poll - or
@@ -65,13 +66,14 @@ import hashlib
 import json
 import os
 import re
-import socket
 import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+import aprs_send                   # hands packets to the one program that sends to APRS-IS
 
 try:
     import aprs_overrides            # edits/deletes made in the web UI (optional)
@@ -81,7 +83,6 @@ except ImportError:
 LIVE_URL = "https://eventsdata.dot.pa.gov/liveEvents"
 PLANNED_URL = "https://eventsdata.dot.pa.gov/plannedEvents"
 USER_ENV, PASS_ENV = "PENNDOT_RCRS_USER", "PENNDOT_RCRS_PASSWORD"
-APRS_IS_HOST, APRS_IS_PORT = "rotate.aprs2.net", 14580
 STATUS_TEXT = "Traffic events: PennDOT RCRS / 511PA (www.511PA.com)"
 STATE_FILE = "pa511_live_state.json"
 EASTERN = ZoneInfo("America/New_York")  # RCRS times are assumed to be local Eastern
@@ -436,40 +437,8 @@ def save_state(path, callsign, live):
 # --------------------------------------------------------------------------
 # APRS-IS
 # --------------------------------------------------------------------------
-def aprs_passcode(call):
-    call = call.split("-")[0].upper()
-    h = 0x73E2
-    for i in range(0, len(call), 2):
-        h ^= ord(call[i]) << 8
-        if i + 1 < len(call):
-            h ^= ord(call[i + 1])
-    return h & 0x7FFF
-
-
-class AprsIS:
-    def __init__(self, call, passcode):
-        self.call, self.passcode, self.sock = call, passcode, None
-
-    def connect(self):
-        self.sock = socket.create_connection((APRS_IS_HOST, APRS_IS_PORT), timeout=20)
-        self.sock.recv(512)  # server banner
-        login = f"user {self.call} pass {self.passcode} vers pa511-aprs 1.0\r\n"
-        self.sock.sendall(login.encode())
-        resp = self.sock.recv(512).decode(errors="replace")
-        if "verified" not in resp.lower() or "unverified" in resp.lower():
-            raise RuntimeError(f"APRS-IS login not verified: {resp.strip()}")
-        # status line crediting the data source (PennDOT terms of use)
-        self.sock.sendall(f"{self.call}>APRS,TCPIP*:>{STATUS_TEXT}\r\n".encode())
-
-    def send(self, packet):
-        if self.sock is None:
-            self.connect()
-        self.sock.sendall(f"{self.call}>APRS,TCPIP*:{packet}\r\n".encode())
-
-    def close(self):
-        if self.sock:
-            self.sock.close()
-            self.sock = None
+# Sending is done by aprs_send.py (one APRS-IS connection for every script): this script
+# hands over each poll's packets with aprs_send.Outbox and never logs in itself.
 
 
 # --------------------------------------------------------------------------
@@ -547,6 +516,8 @@ def run_cycle(args, live, aprs_is):
         print(f"{args.callsign}>APRS,TCPIP*:{pkt}")
         if aprs_is:
             aprs_is.send(pkt)
+    if aprs_is:
+        aprs_is.flush()                # hand this poll's packets to aprs_send.py in one go
 
     # Bookkeeping only after everything was sent: if a send raised, the next cycle
     # repeats the same packets (harmless) instead of losing the kills.
@@ -574,8 +545,8 @@ def main():
                     help=f"maximum characters of object text (default {COMMENT_LIMIT}; APRS 1.0 specifies 43 - "
                          f"use 43 if your clients truncate the text or drop the objects)")
     ap.add_argument("--callsign", default="N0CALL", help="source callsign-SSID for the packets")
-    ap.add_argument("--passcode", type=int, help="APRS-IS passcode (default: computed from callsign)")
-    ap.add_argument("--send", action="store_true", help="actually send to APRS-IS (requires a real callsign)")
+    ap.add_argument("--passcode", type=int, help="ignored: aprs_send.py logs in to APRS-IS, not this script")
+    ap.add_argument("--send", action="store_true", help="hand the packets to aprs_send.py for sending (requires a real callsign)")
     ap.add_argument("--once", action="store_true", help="run one cycle and exit")
     ap.add_argument("--dump", action="store_true",
                     help="print the first event exactly as PennDOT sends it (to check field names)")
@@ -601,7 +572,7 @@ def main():
     live = load_state(args.state_file, args.callsign)
     if live:
         print(f"# restored {len(live)} live object(s) from {args.state_file}", file=sys.stderr)
-    aprs_is = AprsIS(args.callsign, args.passcode or aprs_passcode(args.callsign)) if args.send else None
+    aprs_is = aprs_send.Outbox("pa511", args.callsign, status=STATUS_TEXT) if args.send else None
 
     try:
         while True:

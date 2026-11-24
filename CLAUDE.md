@@ -5,7 +5,7 @@ decisions behind the code and the open tasks before making changes.
 
 | Folder | What it is | Where it runs |
 |---|---|---|
-| `aprs-pi/` | Scripts that turn county dispatch, 511 traffic and NWS weather feeds into APRS objects (sent as **K3YLE-15**), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
+| `aprs-pi/` | Scripts that turn county dispatch, 511 traffic and NWS weather feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
 | `aprs-mapimage/` | A stand-alone Docker service that listens to APRS-IS and draws map pictures (PNG/BMP) for e-paper and dashboards, with a builder web page and saved presets | Docker; live at https://aprs.phlm.sh/ (host port 8083 -> container 8080) |
 
 ## Ground rules
@@ -24,6 +24,10 @@ decisions behind the code and the open tasks before making changes.
 - **Respect the data sources.** If a site refuses automated access, do not work around it.
   aprs.fi API: only on demand, answers cached (30 min default), back off after errors, a User-Agent
   with app name, version and home page, and a visible link crediting aprs.fi. No background polling.
+- **One sender.** Only `aprs-pi/aprs_send.py` logs in to APRS-IS to send. Feed scripts and the web
+  editor hand packets to it with `aprs_send.Outbox` (files in `data/outbox/`); never add another
+  sending connection. It sends an object when it is new, changed or killed, or last sent 26 minutes
+  or more ago, and only acts on what a script hands over.
 - **APRS object rules:** names at most 9 characters and stable from poll to poll; comments fitted to
   `COMMENT_LENGTH` (67, or 43 for strict clients); an object that is no longer wanted is killed
   (`_` instead of `*`), never just abandoned; a failed fetch kills nothing.
@@ -40,22 +44,29 @@ decisions behind the code and the open tasks before making changes.
 ./aprs_ctl.sh logs nws -f
 ./aprs_ctl.sh symbols         # add missing SYM_* settings to aprs.env
 python3 aprs_pa511.py --help  # every feed script has --help; pa511 also has --dump
+./aprs_ctl.sh logs send -f    # what was really sent to APRS-IS, and why
+cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list   # each object: last change, last send
+cd tests && python3 -m unittest test_send                        # sender tests (fake APRS-IS on localhost)
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
 # aprs-mapimage
 cd aprs-mapimage && cp .env.example .env && docker compose up -d --build
 cd aprs-mapimage/app && DATA_DIR=/tmp/mi APRS_HOME=40.12,-75.34 PORT=8790 python3 server.py   # without Docker
 python3 aprs-mapimage/tools/build_world.py <natural-earth geojson folder> aprs-mapimage/app/world.json.gz
+python3 aprs-mapimage/tools/sync_shared.py           # copy the shared modules into aprs-pi/
+python3 aprs-mapimage/tools/sync_shared.py --check   # exit 1 if the two copies differ
 ```
 
 Tests: `aprs-mapimage/tests/README.md` (development harnesses with fake APRS-IS, fake map services
-and fake aprs.fi; run each from its own folder).
+and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_send.py` (unittest). Use a
+made-up callsign such as `TEST-13` with a fake server: `--send` refuses `N0CALL`.
 
 ## Layout notes
 
-- `aprs_eink.py` (renderer) and `aprs_listen.py` (APRS-IS listener) exist in **both** projects and have
-  diverged: the `aprs-mapimage/app/` copies are newer (multi-area listening, follow filters, water fill,
-  world map, old-position markers). Change both deliberately, or consolidate (open task in HANDOFF.md).
+- `aprs_eink.py` (renderer) and `aprs_listen.py` (APRS-IS listener) are shared by both projects. The
+  master copies are in `aprs-mapimage/app/`; `aprs-pi/` holds byte-identical copies. Edit the master,
+  run `python3 aprs-mapimage/tools/sync_shared.py`, and commit both copies together. Never edit the
+  `aprs-pi/` copies directly. Anything changed in these two files must keep `aprs-pi/aprs_web.py` working.
 - `aprs-mapimage/app/world.json.gz` is generated (Natural Earth, public domain); rebuild it with
   `tools/build_world.py`, don't edit it.
 - Runtime data lives in `aprs-pi/data/` and the map server's `/data` volume; never commit it.
