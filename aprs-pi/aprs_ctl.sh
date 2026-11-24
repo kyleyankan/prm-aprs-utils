@@ -90,6 +90,7 @@ load_conf() {  # read aprs.env (again); called at start and before every service
     for _v in "${!SYM_@}"; do export "$_v"; done                 # APRS symbol choices (see: aprs_ctl.sh symbols)
     [ -n "${EINK_SYMBOLS:-}" ] && export EINK_SYMBOLS            # 0 = maps never download the symbol pictures
     [ -n "$APRS_HOME" ] && export APRS_HOME
+    [ -n "${WEB_PROXIED:-}" ] && export WEB_PROXIED              # all = a reverse proxy may reach the editor too (default: only /api/packets)
     [ -n "${APRS_LISTEN:-}" ] && export APRS_LISTEN              # 0 = web map does not listen to APRS-IS
     [ -n "${APRS_LISTEN_MILES:-}" ] && export APRS_LISTEN_MILES  # radius for other people's objects (default 50)
     [ -n "${APRS_TRAIL_MINUTES:-}" ] && export APRS_TRAIL_MINUTES  # how much path history to keep (default 180)

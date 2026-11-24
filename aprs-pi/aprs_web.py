@@ -39,6 +39,14 @@ aprs_send.py sends (POST /api/settings {"min_level": "medium"}, kept in sender_s
 GET /api/packets?lat=..&lon=..&miles=25 lists our own object packets within that distance of a
 point, for a radio in that area to transmit (see README.txt, "Packets for radios").
 
+Every station that asks /api/packets is remembered for 7 days (api_clients.json): the callsign it
+gave, the point and radius it asked for, and when.  The page draws them as a "Radio gateways" layer,
+a label at the point and a circle of the radius; GET /api/clients is the same as JSON.
+
+Behind a reverse proxy only /api/packets answers: a request the proxy passed on (it carries
+X-Forwarded-For) gets 403 for the page, the editor and every other address, because the page has no
+login.  --proxied all (or WEB_PROXIED=all) lifts that; use it only if the proxy asks for a login.
+
 GET /eink.png (or /eink.bmp) returns a black-and-white picture of the map and object
 list for an e-ink display, 272x792 by default; see aprs_eink.py for the options.
 
@@ -250,6 +258,89 @@ def packets_near(q):
     counts = {lv: sum(1 for i in out if i["live"] and i["level"] == lv) for lv in aprs_priority.LEVELS}
     return 200, {"callsign": ARGS.callsign, "centre": [lat, lon], "miles": miles, "min": minimum, "now": now,
                  "sending": bool(ARGS.send), "count": len(out), "levels": counts, "packets": out}
+
+
+# --------------------------------------------------------------------------
+# Who asks /api/packets: the stations that carry our objects on the air
+# --------------------------------------------------------------------------
+CLIENTS_FILE = "api_clients.json"
+CLIENT_DAYS = 7                    # a station that has not asked for this long is forgotten
+CLIENT_LIMIT = 200
+CLIENTS, CLIENTS_LOCK, CLIENTS_SAVED = {}, threading.Lock(), [0.0]
+
+
+def clients_path():
+    return os.path.join(data_dir(), CLIENTS_FILE)
+
+
+def load_clients():
+    try:
+        with open(clients_path()) as f:
+            raw = json.load(f)["clients"]
+        with CLIENTS_LOCK:
+            for c in raw:
+                CLIENTS[(c["callsign"], round(c["lat"], 3), round(c["lon"], 3))] = c
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+
+def save_clients():
+    with CLIENTS_LOCK:
+        data = {"saved": time.time(), "clients": list(CLIENTS.values())}
+        CLIENTS_SAVED[0] = time.time()
+    tmp = f"{clients_path()}.{threading.get_ident()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, separators=(",", ":"))
+    os.replace(tmp, clients_path())
+
+
+def note_client(q, payload, address="", agent="", now=None):
+    """Remember one successful /api/packets request: who says they asked, for where, and how wide.
+    The callsign is whatever the request gave as via=; nothing checks it."""
+    now = time.time() if now is None else now
+    call = str(q.get("via", "")).upper()[:9]
+    lat, lon = payload["centre"]
+    key = (call, round(lat, 3), round(lon, 3))
+    with CLIENTS_LOCK:
+        c = CLIENTS.get(key)
+        fresh = c is None
+        if fresh:
+            c = CLIENTS[key] = {"callsign": call, "lat": lat, "lon": lon, "first": now, "count": 0}
+        c.update(miles=payload["miles"], min=payload["min"], last=now, count=c["count"] + 1,
+                 listed=payload["count"], address=str(address)[:60], agent=str(agent)[:80])
+        for k in [k for k, v in CLIENTS.items() if now - v["last"] > CLIENT_DAYS * 86400]:
+            del CLIENTS[k]
+        while len(CLIENTS) > CLIENT_LIMIT:                         # the longest-silent go first
+            del CLIENTS[min(CLIENTS, key=lambda k: CLIENTS[k]["last"])]
+        due = fresh or now - CLIENTS_SAVED[0] > 60
+    if due:
+        try:
+            save_clients()
+        except OSError as e:
+            print(f"# web: could not save {CLIENTS_FILE}: {e}", file=sys.stderr, flush=True)
+
+
+def clients_snapshot(now=None):
+    """GET /api/clients: the stations that asked /api/packets in the last CLIENT_DAYS days, newest first."""
+    now = time.time() if now is None else now
+    with CLIENTS_LOCK:
+        rows = [dict(c) for c in CLIENTS.values() if now - c["last"] <= CLIENT_DAYS * 86400]
+    for c in rows:
+        c["active"] = now - c["last"] <= 600                     # asked in the last ten minutes
+    return {"now": now, "days": CLIENT_DAYS, "clients": sorted(rows, key=lambda c: -c["last"])}
+
+
+# What a request that came through a reverse proxy may reach.  The page has no login and can edit,
+# delete and create objects that are then transmitted, so by default the outside world gets only
+# the packet list.  A proxy marks the requests it passes on with X-Forwarded-For (Caddy, nginx and
+# the like do); requests made straight to this machine carry no such header and get everything.
+PUBLIC_PATHS = ("/api/packets",)
+
+
+def allowed(handler, path):
+    if ARGS.proxied == "all" or not handler.headers.get("X-Forwarded-For"):
+        return True
+    return handler.command == "GET" and path in PUBLIC_PATHS
 
 
 def prune(overrides, objects):
@@ -491,8 +582,14 @@ class Handler(BaseHTTPRequestHandler):
     def query(self):
         return {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()}
 
+    def refuse(self):
+        self.reply(403, {"error": "only /api/packets is available at this address"})
+
     def do_GET(self):
         p = self.path.split("?")[0]
+        p = p.rstrip("/") or "/"
+        if not allowed(self, p):
+            return self.refuse()
         if p in ("/", "/index.html"):
             self.reply(200, PAGE.encode(), "text/html; charset=utf-8")
         elif p == "/api/objects":
@@ -500,11 +597,16 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/api/packets":
             q = self.query()
             code, payload = packets_near(q)
+            if code == 200:
+                note_client(q, payload, (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip(),
+                            self.headers.get("User-Agent", ""))
             if code == 200 and q.get("format") == "text":          # one packet per line, ready to transmit
                 lines = [i.get("rf") or i["tnc2"] for i in payload["packets"]]
                 return self.reply(200, ("\n".join(lines) + "\n" if lines else "").encode("ascii", "replace"),
                                   "text/plain; charset=us-ascii")
             self.reply(code, payload)
+        elif p == "/api/clients":
+            self.reply(200, clients_snapshot())
         elif p == "/api/aprs":
             if not LISTENER:
                 return self.reply(200, {"enabled": False, "objects": []})
@@ -535,7 +637,9 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": "not found"})
 
     def do_POST(self):
-        p = self.path.split("?")[0]
+        p = self.path.split("?")[0].rstrip("/")
+        if not allowed(self, p):
+            return self.refuse()
         if not p.startswith("/api/"):
             return self.reply(404, {"error": "not found"})
         try:
@@ -625,6 +729,8 @@ header h1{font-size:16px;margin:0 0 2px}
 #imp .cnt{display:flex;flex-wrap:wrap;gap:6px 12px;margin:4px 0 6px}#imp .cnt span.lv{margin-left:0}
 #imp select{font:inherit;padding:2px 4px;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:6px}
 #imp small{color:var(--mute)}
+.gw{font:600 11px/16px ui-monospace,Menlo,Consolas,monospace;color:#fff;background:#7048e8;border:2px solid #fff;border-radius:4px;padding:0 5px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+.gw.idle{background:#868e96}
 .tag{display:inline-block;font-size:11px;padding:0 5px;border-radius:8px;background:var(--tagbg);color:var(--tagink);margin-left:6px}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:0;padding:10px 14px 4px}
 #edit{display:none;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--soft)}
@@ -656,6 +762,7 @@ button.del{color:var(--danger);border-color:var(--dline)}
    <label class="src"><input type="checkbox" id="o_obj" onchange="setOther()"><span class="dot" style="background:#868e96"></span><span>Other APRS objects <small id="o_st"></small></span><span class="n" id="o_n1"></span></label>
    <label class="src"><input type="checkbox" id="o_path" onchange="setOther();render()"><span class="dot" style="background:none;border-top:2px dashed #868e96;border-radius:0;height:0"></span><span>Paths (where things have been)</span></label>
    <label class="src"><input type="checkbox" id="o_sym" onchange="setOther();resetIcons()"><span class="dot" style="background:none;border:2px solid #868e96"></span><span>APRS symbols as markers</span></label>
+   <label class="src"><input type="checkbox" id="o_gw" onchange="setOther();loadClients()"><span class="dot" style="background:none;border:2px solid #7048e8"></span><span>Radio gateways <small>· stations asking /api/packets</small></span><span class="n" id="o_n3"></span></label>
    <label class="src"><input type="checkbox" id="o_sta" onchange="setOther()"><span class="dot" style="background:#adb5bd;border-radius:2px"></span><span>APRS stations</span><span class="n" id="o_n2"></span></label>
   </div>
   <div id="svc"></div>
@@ -832,15 +939,35 @@ async function restore(n){cancelEdit(); map.closePopup(); await api("restore",{n
 async function load(){ try{const r=await fetch("/api/objects"); data=await r.json(); render();}catch(e){$("meta").textContent="Cannot reach the server: "+e;} }
 $("find").addEventListener("input",render);
 // ---- everything else heard on APRS-IS (not ours): a layer that can be switched off ----
-let others={objects:[]}, otherMarkers={}, otherTrails=null;
+let others={objects:[]}, otherMarkers={}, otherTrails=null, gwLayer=null;
+// Stations that ask /api/packets: a label at the point they ask for, and a circle of the radius they ask for.
+async function loadClients(){
+  if(!gwLayer) gwLayer=L.layerGroup().addTo(map);
+  gwLayer.clearLayers();
+  let d={clients:[]}; try{const r=await fetch("/api/clients"); d=await r.json();}catch(e){}
+  const act=d.clients.filter(c=>c.active).length; $("o_n3").textContent=d.clients.length?`${act}/${d.clients.length}`:"";
+  $("o_n3").title=`${act} asked in the last 10 minutes, ${d.clients.length} in the last ${d.days||7} days`;
+  if(!$("o_gw").checked) return;
+  for(const c of d.clients){ const col=c.active?"#7048e8":"#868e96", name=c.callsign||"(no callsign)";
+    L.circle([c.lat,c.lon],{radius:c.miles*1609.344,color:col,weight:2,opacity:.9,fillColor:col,fillOpacity:.06,dashArray:c.active?null:"6 6",interactive:false}).addTo(gwLayer);
+    L.marker([c.lat,c.lon],{zIndexOffset:-500,icon:L.divIcon({className:"",html:`<div class="gw${c.active?"":" idle"}">${esc(name)}</div>`,iconSize:null,iconAnchor:[20,9]})})
+     .bindPopup(`<div class="pop"><b>${esc(name)}</b> <span class="k">radio gateway</span><br>
+<span class="k">Asks for:</span> ${c.miles} miles around ${c.lat.toFixed(4)}, ${c.lon.toFixed(4)}<br>
+<span class="k">Least important level:</span> ${esc(c.min)} · ${c.listed} packet(s) in its last list<br>
+<span class="k">Last asked:</span> ${hhmm(c.last)} (${ago(c.last)}) · ${c.count} request(s) since ${new Date(c.first*1000).toLocaleString()}<br>
+<span class="k">From:</span> ${esc(c.address||"?")} · ${esc(c.agent||"")}<br>
+<span class="k">The callsign is what the request gave; it is not checked.</span></div>`,{maxWidth:340})
+     .bindTooltip(`${name} · ${c.miles} mi · ${c.active?"asking now":"last asked "+ago(c.last)}`).addTo(gwLayer); }
+}
 function pref(k,d){try{const v=localStorage.getItem(k);return v===null?d:v;}catch(e){return d;}}
 $("msgbox").open=pref("aprs-msgs","1")==="1";
 $("msgbox").addEventListener("toggle",()=>{try{localStorage.setItem("aprs-msgs",$("msgbox").open?"1":"0");}catch(e){}});
 $("o_sym").checked=pref("aprs-symbols","1")==="1";
 function resetIcons(){ for(const id of Object.keys(otherMarkers)){map.removeLayer(otherMarkers[id]); delete otherMarkers[id];} render(); loadOther(); }
 (function(){const im=new Image(); im.onload=()=>{symOK=true; resetIcons();}; im.src=SPR+"0.png";})();
+$("o_gw").checked=pref("aprs-gateways","1")==="1";
 $("o_obj").checked=pref("aprs-other","1")==="1"; $("o_sta").checked=pref("aprs-stations","0")==="1"; $("o_path").checked=pref("aprs-paths","1")==="1";
-function setOther(){try{localStorage.setItem("aprs-other",$("o_obj").checked?"1":"0");localStorage.setItem("aprs-stations",$("o_sta").checked?"1":"0");localStorage.setItem("aprs-paths",$("o_path").checked?"1":"0");localStorage.setItem("aprs-symbols",$("o_sym").checked?"1":"0");}catch(e){} loadOther();}
+function setOther(){try{localStorage.setItem("aprs-gateways",$("o_gw").checked?"1":"0");localStorage.setItem("aprs-other",$("o_obj").checked?"1":"0");localStorage.setItem("aprs-stations",$("o_sta").checked?"1":"0");localStorage.setItem("aprs-paths",$("o_path").checked?"1":"0");localStorage.setItem("aprs-symbols",$("o_sym").checked?"1":"0");}catch(e){} loadOther();}
 function ago(ts){const m=Math.max(0,Math.round((Date.now()/1000-ts)/60));return m<1?"just now":m+" min ago";}
 function oIcon(o){ const sh=symHtml(o);
   if(sh) return L.divIcon({className:"",html:`<div class="osym">${sh}<span>${esc(o.name.slice(0,9))}</span></div>`,iconSize:null,iconAnchor:[12,12]});
@@ -867,6 +994,7 @@ async function loadOther(){
 }
 load(); setInterval(()=>{ if(!document.hidden) load(); },10000);
 loadOther(); setInterval(()=>{ if(!document.hidden) loadOther(); },30000);
+loadClients(); setInterval(()=>{ if(!document.hidden) loadClients(); },30000);
 </script></body></html>
 """
 
@@ -890,6 +1018,9 @@ def main():
                     help="do not fetch recent APRS history when starting without a recent saved state")
     ap.add_argument("--trail-minutes", type=float, default=float(os.environ.get("APRS_TRAIL_MINUTES") or 180),
                     help="how much of each object's path to keep and draw (default 180)")
+    ap.add_argument("--proxied", default=os.environ.get("WEB_PROXIED") or "packets", choices=["packets", "all"],
+                    help="what requests arriving through a reverse proxy may reach: only /api/packets (default), "
+                         "or all of it, editor included (only if the proxy itself asks for a login)")
     ap.add_argument("--custom-interval", type=int, default=120,
                     help="seconds between hand-overs of objects created in the UI to aprs_send.py, which decides "
                          "when a re-send is due (default 120, minimum 120)")
@@ -919,6 +1050,7 @@ def main():
                                         host=os.environ.get("APRS_IS_HOST") or aprs_listen.HOST,
                                         port=int(os.environ.get("APRS_IS_PORT") or aprs_listen.PORT))
     age = load_heard()
+    load_clients()
     if LISTENER:
         LISTENER.start()
         if (age is None or age > 1800) and not ARGS.no_backfill and os.environ.get("APRS_BACKFILL", "1") != "0":
@@ -932,6 +1064,8 @@ def main():
     srv = ThreadingHTTPServer((ARGS.bind, ARGS.port), Handler)
     print(f"# web UI on http://{ARGS.bind}:{ARGS.port}/  (data: {os.path.abspath(data_dir())}, "
           f"{'sending' if ARGS.send else 'print-only'})", file=sys.stderr, flush=True)
+    print("# through a reverse proxy: " + ("everything is reachable, the editor included" if ARGS.proxied == "all"
+                                          else "only /api/packets is reachable"), file=sys.stderr, flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
@@ -941,6 +1075,10 @@ def main():
             save_heard()
         except OSError as e:
             print(f"# could not save {HEARD_FILE}: {e}", file=sys.stderr, flush=True)
+        try:
+            save_clients()
+        except OSError as e:
+            print(f"# could not save {CLIENTS_FILE}: {e}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

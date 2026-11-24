@@ -80,6 +80,7 @@ flowchart LR
 
     radio[Radios in the field]
     web -->|"/api/packets:<br>packets near a point"| radio
+    radio -.->|"who asked, for where:<br>the gateways layer"| web
 ```
 
 Everything to the left of the outbox decides **what should be on the air**. The sender alone
@@ -421,6 +422,15 @@ no connection. This is the safe test mode and the default.
   (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which keeps this station as the sender and stops igates
   passing the packet back to APRS-IS. It reads the sender's `sender_state.json` and transmits
   nothing itself.
+- **Radio gateways:** every successful `/api/packets` request is remembered for 7 days in
+  `api_clients.json`: the callsign it gave, the point and radius it asked for, the level, the
+  time and the address it came from. The map draws each station as a label at its point with a
+  circle of its radius, and `GET /api/clients` returns the list. The callsign is not checked.
+- **Public address:** `https://aprs-incidents.phlm.sh` is a reverse proxy in front of this
+  service. A request the proxy passed on carries `X-Forwarded-For`, and for those only
+  `GET /api/packets` answers; everything else returns 403, because the page has no login and its
+  edits are transmitted. Requests made straight to the Pi get everything. `WEB_PROXIED=all`
+  lifts the limit.
 - **Edit and delete:** stored in `overrides.json`, which every feed script applies on its next
   poll, so a correction sticks even though the source still reports the original. The corrected
   packet or the kill is also handed to the sender at once.
@@ -439,7 +449,8 @@ no connection. This is the safe test mode and the default.
 |---|---|
 | `/` | the map and editor page |
 | `GET /api/objects` | every live object with its source, level, score, reasons and send times; counts per level; the minimum level |
-| `GET /api/packets?lat=&lon=&miles=` | packets near a point for a radio to transmit; options `min`, `kills`, `limit`, `since`, `via`, `format=text` |
+| `GET /api/packets?lat=&lon=&miles=` | packets near a point for a radio to transmit; options `min`, `kills`, `limit`, `since`, `via`, `format=text`. The only address that answers through the public proxy |
+| `GET /api/clients` | the stations that asked `/api/packets` in the last 7 days |
 | `POST /api/settings` | sets the minimum level for sending: `{"min_level": "medium"}` |
 | `POST /api/edit`, `/api/delete`, `/api/restore`, `/api/create` | corrections and custom objects from the page |
 | `GET /api/aprs` | other people's objects, stations and messages heard nearby |
@@ -468,6 +479,7 @@ no connection. This is the safe test mode and the default.
 | `outbox/*.json` | feed scripts and web service | packets waiting for the sender |
 | `sender_state.json` | sender | what was sent, when, what is waiting and what is held back |
 | `sender_settings.json` | web service | the minimum level for sending, read by the sender |
+| `api_clients.json` | web service | the stations that asked `/api/packets`: callsign given, point, radius, times |
 | `geocache_google.json`, `geocache_chesco.json` | montco, chesco | Google geocoding results, 30 days |
 | `nj_counties.json` | nj511 | New Jersey county outlines |
 | `nws_zone_cache.json` | nws | NWS zone outlines |

@@ -7,9 +7,13 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import unittest
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import aprs_priority
 import aprs_send
 import aprs_web
 
@@ -28,7 +32,7 @@ class PacketsNear(unittest.TestCase):
         old = os.environ.get("APRS_DATA_DIR")
         os.environ["APRS_DATA_DIR"] = self.dir.name
         self.addCleanup(lambda: os.environ.pop("APRS_DATA_DIR") if old is None else os.environ.update(APRS_DATA_DIR=old))
-        aprs_web.ARGS = argparse.Namespace(send=True, callsign=CALL)
+        aprs_web.ARGS = argparse.Namespace(send=True, callsign=CALL, proxied="packets")
         book = aprs_send.Book(CALL, os.path.join(self.dir.name, aprs_send.STATE_FILE))
         for packet in (obj("NEAR1", "4007.20N", "07520.40W"),               # at home
                        obj("NEAR2", "4012.00N", "07520.40W"),               # about 5.5 miles north
@@ -108,7 +112,7 @@ class PacketsNear(unittest.TestCase):
             self.assertEqual(aprs_web.packets_near(q)[0], 400, q)
 
     def test_print_only_mode_builds_packets_from_the_scripts_state_files(self):
-        aprs_web.ARGS = argparse.Namespace(send=False, callsign=CALL)
+        aprs_web.ARGS = argparse.Namespace(send=False, callsign=CALL, proxied="packets")
         with open(os.path.join(self.dir.name, "aprs_live_state.json"), "w") as f:
             json.dump({"callsign": CALL, "objects": {
                 "FIRE1": {"lat": 40.12, "lon": -75.34, "table": "/", "code": "d", "comment": "Fire Main St"},
@@ -116,6 +120,80 @@ class PacketsNear(unittest.TestCase):
         code, payload = aprs_web.packets_near({"lat": "40.12", "lon": "-75.34", "miles": "10"})
         self.assertEqual((code, [p["name"] for p in payload["packets"]]), (200, ["FIRE1"]))
         self.assertRegex(payload["packets"][0]["info"], r"^;FIRE1    \*\d{6}z4007\.20N/07520\.40WdFire Main St$")
+
+
+class Gateways(unittest.TestCase):
+    """Who asks /api/packets, and what a request through a reverse proxy may reach."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        old = os.environ.get("APRS_DATA_DIR")
+        os.environ["APRS_DATA_DIR"] = self.dir.name
+        self.addCleanup(lambda: os.environ.pop("APRS_DATA_DIR") if old is None else os.environ.update(APRS_DATA_DIR=old))
+        aprs_web.ARGS = argparse.Namespace(send=False, callsign=CALL, proxied="packets")
+        aprs_web.CLIENTS.clear()
+        aprs_web.OWN_TRAILS = aprs_web.LISTENER = None
+        self.server = aprs_web.ThreadingHTTPServer(("127.0.0.1", 0), aprs_web.Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def get(self, path, proxied=False, method="GET", body=None):
+        headers = {"X-Forwarded-For": "203.0.113.9", "User-Agent": "aprs-radio/1.0"} if proxied else {}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(self.base + path, headers=headers, method=method,
+                                     data=json.dumps(body).encode() if body is not None else None)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    def test_each_station_is_remembered_with_its_point_radius_and_times(self):
+        self.get("/api/packets?lat=40.12&lon=-75.34&miles=15&min=high&via=w3xyz-10", proxied=True)
+        self.get("/api/packets/?lat=40.12&lon=-75.34&miles=20&via=W3XYZ-10", proxied=True)       # asks again, wider
+        self.get("/api/packets?lat=39.95&lon=-75.16&via=N3ABC-1")
+        self.get("/api/packets?lat=40.5&lon=-75.5")                                              # no callsign given
+        self.get("/api/packets?lat=95&lon=0&via=BAD-1")                                          # refused: not remembered
+        code, raw = self.get("/api/clients")
+        clients = {c["callsign"]: c for c in json.loads(raw)["clients"]}
+        self.assertEqual((code, sorted(clients)), (200, ["", "N3ABC-1", "W3XYZ-10"]))
+        c = clients["W3XYZ-10"]
+        self.assertEqual((c["lat"], c["lon"], c["miles"], c["min"], c["count"], c["active"]), (40.12, -75.34, 20.0, "low", 2, True))
+        self.assertEqual((c["address"], c["agent"]), ("203.0.113.9", "aprs-radio/1.0"))
+        self.assertEqual(clients["N3ABC-1"]["address"], "127.0.0.1")
+        self.assertEqual(clients["N3ABC-1"]["miles"], 25.0)
+
+    def test_stations_survive_a_restart_and_are_forgotten_after_a_week(self):
+        payload = {"centre": [40.12, -75.34], "miles": 10.0, "min": "medium", "count": 3}
+        aprs_web.note_client({"via": "W3XYZ-10"}, payload, "203.0.113.9", "x", now=1000)
+        aprs_web.CLIENTS.clear()
+        aprs_web.load_clients()
+        self.assertEqual([c["callsign"] for c in aprs_web.clients_snapshot(now=2000)["clients"]], ["W3XYZ-10"])
+        self.assertFalse(aprs_web.clients_snapshot(now=2000)["clients"][0]["active"])           # silent over ten minutes
+        self.assertEqual(aprs_web.clients_snapshot(now=1000 + 8 * 86400)["clients"], [])
+
+    def test_through_a_proxy_only_the_packet_list_answers(self):
+        self.assertEqual(self.get("/api/packets?lat=40.12&lon=-75.34", proxied=True)[0], 200)
+        for path in ("/", "/api/objects", "/api/clients", "/api/aprs", "/eink.png", "/nothing"):
+            self.assertEqual(self.get(path, proxied=True)[0], 403, path)
+        for path, body in (("/api/settings", {"min_level": "critical"}), ("/api/delete", {"name": "FIRE1"}),
+                           ("/api/create", {"name": "X1", "lat": 40, "lon": -75}), ("/api/packets", {})):
+            self.assertEqual(self.get(path, proxied=True, method="POST", body=body)[0], 403, path)
+        self.assertEqual(aprs_priority.load_min_level(), "low")                                  # nothing got through
+
+    def test_straight_to_the_machine_everything_answers(self):
+        for path in ("/", "/api/objects", "/api/clients"):
+            self.assertEqual(self.get(path)[0], 200, path)
+        self.assertEqual(self.get("/api/settings", method="POST", body={"min_level": "medium"})[0], 200)
+        self.assertEqual(aprs_priority.load_min_level(), "medium")
+
+    def test_proxied_all_opens_it_up(self):
+        aprs_web.ARGS.proxied = "all"
+        self.assertEqual(self.get("/api/objects", proxied=True)[0], 200)
 
 
 class Positions(unittest.TestCase):

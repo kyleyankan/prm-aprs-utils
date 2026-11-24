@@ -72,6 +72,23 @@ Packets for radios (which of our objects are near a point)
      form keeps K3YLE-15 as the sender and igates do not pass it back.
      This only lists packets. The radio's own program decides what to transmit and how often.
      With SEND=0 the list is built from the scripts' state files and has no kills.
+     Other operators run aprs-radio/aprs_radio.py against this address to put the objects on RF.
+
+Radio gateways (who is asking for packets)
+     The web map has a "Radio gateways" layer: every station that asked /api/packets in the last
+     7 days, as a label with its callsign at the point it asked for and a circle of the radius it
+     asked for. Purple and solid = asked in the last 10 minutes; grey and dashed = quiet since.
+     Click one for its radius, level, last request, request count and address.
+     The callsign is whatever the request gave as via=; it is not checked.
+     http://<pi address>:8080/api/clients      the same as JSON.  Kept in data/api_clients.json.
+
+Public address (reverse proxy)
+     https://aprs-incidents.phlm.sh passes requests to this web service. Through it, ONLY
+     /api/packets answers; the map, the editor, the settings and every other address return 403.
+     The web service tells the two apart by the X-Forwarded-For header that the proxy adds, so
+     keep the proxy adding it. On your own network, http://<pi address>:8080/ works in full.
+     aprs.env: WEB_PROXIED=all lifts the limit. Do that only if the proxy itself asks for a login,
+     because the page has none and can create, change and kill objects that are then transmitted.
 
 E-ink picture
      http://<pi address>:8080/eink.png      black-and-white map + object list, 272x792

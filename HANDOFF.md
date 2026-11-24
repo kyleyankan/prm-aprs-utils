@@ -216,9 +216,16 @@ With the traffic of that day, "medium and above" would kill about 160 roadwork o
    It passes its tests against a fake feeder and fake TNC and reads the Pi's real list, but **it has
    never keyed a real radio or been decoded off the air**. Still open:
    - Try it with Direwolf and a radio, and check another station decodes the third-party packets.
-   - **Reaching the feeder.** The Pi's web service has no login and can edit and delete objects, so
-     port 8080 must not be opened to other operators as it is. They need `/api/packets` only: put it
-     behind a reverse proxy that passes that one path, or add a read-only port to `aprs_web.py`.
+   - **Reaching the feeder.** The owner put the web service behind a reverse proxy (Caddy) at
+     `https://aprs-incidents.phlm.sh`. A test on 2026-11-24 showed the proxy passed everything
+     through: the map, `/api/objects` and the POST addresses all answered from the internet, with
+     no login, so anyone could have created, changed or killed objects under K3YLE-15.
+     `aprs_web.py` now answers only `GET /api/packets` for requests the proxy passed on
+     (`X-Forwarded-For` present) and 403 for the rest; `--proxied all` / `WEB_PROXIED=all` undoes
+     it. This depends on the proxy adding that header. A path rule in the proxy itself would be a
+     second layer and is still worth adding.
+   - **Gateways layer** (same day): `/api/packets` requests are recorded (callsign given, point,
+     radius, level, times, address; 7 days; `data/api_clients.json`) and drawn on the map.
    - `APZIFD` is an experimental destination; register a proper one if the script is published.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
