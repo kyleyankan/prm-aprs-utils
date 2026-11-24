@@ -32,6 +32,10 @@ at shutdown, and loaded again at start.  Starting without a saved state from the
 last 30 minutes, it also tries once to fetch recent history (see aprs_listen.py).
 The listener only receives; set APRS_LISTEN=0 (or --no-listen) to disable it.
 
+Every object is rated critical, high, medium or low (aprs_priority.py).  The page shows the level
+of each object and a count of each level, and its "Send to APRS-IS" choice sets the minimum level
+aprs_send.py sends (POST /api/settings {"min_level": "medium"}, kept in sender_settings.json).
+
 GET /api/packets?lat=..&lon=..&miles=25 lists our own object packets within that distance of a
 point, for a radio in that area to transmit (see README.txt, "Packets for radios").
 
@@ -54,6 +58,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import aprs_overrides as ov
+import aprs_priority               # how important each object is, and the minimum level for sending
 import aprs_send                   # the one program that sends to APRS-IS; this one only hands packets over
 
 try:
@@ -148,6 +153,7 @@ def snapshot():
     overrides = ov.load()
     times = aprs_send.send_times() if ARGS.send else {}        # when each was last sent to APRS-IS
     live, suppressed = [], []
+    now, held, levels = time.time(), 0, {lv: 0 for lv in aprs_priority.LEVELS}
     for name, rec in objects.items():
         rec["aprs_is"] = times.get(name.strip())
         e = overrides.get(name)
@@ -163,6 +169,11 @@ def snapshot():
         rec["path"] = OWN_TRAILS.get(name) if OWN_TRAILS else []
         rec["shape"] = ov.decode_shape(rec["lat"], rec["lon"], rec["comment"])     # outline carried in the text
         rec["comment"] = ov.split_shape(rec["comment"])[0]
+        t = rec["aprs_is"] or {}
+        age = (now - t["changed"]) / 60 if t.get("changed") else None
+        rec.update(aprs_priority.rate(name, rec["comment"], rec["source"], age))      # level, score, reasons, rated
+        levels[rec["level"]] += 1
+        held += bool(t.get("held"))
         live.append(rec)
         if rec["source"] in sources:
             sources[rec["source"]]["count"] += 1
@@ -174,7 +185,8 @@ def snapshot():
     live.sort(key=lambda r: r["name"])
     return {"objects": live, "suppressed": sorted(suppressed, key=lambda r: -r["ts"]),
             "sources": sorted(sources.values(), key=lambda s: s["label"]), "services": service_status(),
-            "sending": bool(ARGS.send), "callsign": ARGS.callsign, "now": time.time()}
+            "sending": bool(ARGS.send), "callsign": ARGS.callsign, "now": now,
+            "levels": levels, "held": held, "min_level": aprs_priority.load_min_level()}
 
 
 def miles_between(lat1, lon1, lat2, lon2):
@@ -189,6 +201,7 @@ VIA_OK = re.compile(r"[A-Z0-9]{1,6}(-[A-Z0-9]{1,2})?")
 
 def packets_near(q):
     """GET /api/packets: our own object packets within `miles` of lat,lon, for a radio there to transmit.
+    min=high keeps only objects rated at least that important (aprs_priority.py); kills are always listed.
     -> (status, payload).  With --send these are the packets as last sent to APRS-IS, kills of the last
     26 minutes included; in print-only mode they are built from the scripts' state files (no kills)."""
     try:
@@ -202,6 +215,9 @@ def packets_near(q):
         return 400, {"error": "lat, lon, miles, since and limit must be numbers"}
     if not (-90 <= lat <= 90 and -180 <= lon <= 180 and 0 < miles <= 1000):
         return 400, {"error": "lat must be -90..90, lon -180..180 and miles more than 0 and at most 1000"}
+    minimum = aprs_priority.parse_level(q.get("min"), None if q.get("min") else aprs_priority.LEVELS[0])
+    if not minimum:
+        return 400, {"error": "min must be one of: " + ", ".join(aprs_priority.LEVELS)}
     via = str(q.get("via", "")).upper()
     if via and not VIA_OK.fullmatch(via):
         return 400, {"error": "via must be a callsign, e.g. via=W3XYZ-10"}
@@ -212,22 +228,28 @@ def packets_near(q):
                  "source": o["source"],
                  "packet": ov.packet(o["name"], o["lat"], o["lon"], o["table"], o["code"], o["comment"])}
                 for o in snapshot()["objects"]]
-    out = []
+    out, now = [], time.time()
     for r in recs:
         d = miles_between(lat, lon, r["lat"], r["lon"])
         if d > miles or (not r["live"] and q.get("kills", "1") == "0") or (since and (r["changed"] or 0) < since):
             continue
-        item = {"name": r["name"], "live": r["live"], "lat": round(r["lat"], 5), "lon": round(r["lon"], 5),
+        age = (now - r["changed"]) / 60 if r["changed"] else None
+        rating = aprs_priority.rate(r["name"], r["packet"][37:], r["source"], age if r["live"] else None)
+        if r["live"] and not aprs_priority.at_least(rating["level"], minimum):
+            continue                              # a kill is always listed: the radio may have sent the object
+        item = {"name": r["name"], "live": r["live"], "level": rating["level"], "score": rating["score"],
+                "reasons": rating["reasons"], "lat": round(r["lat"], 5), "lon": round(r["lon"], 5),
                 "miles": round(d, 1), "source": r["source"], "sent": r["sent"], "changed": r["changed"],
                 "info": r["packet"], "tnc2": f"{ARGS.callsign}>APRS,TCPIP*:{r['packet']}"}
         if via:                                   # third-party form: what a gateway station puts on the air
             item["rf"] = f"}}{ARGS.callsign}>APRS,TCPIP,{via}*:{r['packet']}"
         out.append(item)
-    out.sort(key=lambda i: (i["live"], i["miles"]))        # kills first (few, and they matter), then nearest
+    out.sort(key=lambda i: (i["live"], -i["score"], i["miles"]))   # kills first, then most important, then nearest
     if limit > 0:
         out = out[:limit]
-    return 200, {"callsign": ARGS.callsign, "centre": [lat, lon], "miles": miles, "now": time.time(),
-                 "sending": bool(ARGS.send), "count": len(out), "packets": out}
+    counts = {lv: sum(1 for i in out if i["live"] and i["level"] == lv) for lv in aprs_priority.LEVELS}
+    return 200, {"callsign": ARGS.callsign, "centre": [lat, lon], "miles": miles, "min": minimum, "now": now,
+                 "sending": bool(ARGS.send), "count": len(out), "levels": counts, "packets": out}
 
 
 def prune(overrides, objects):
@@ -523,6 +545,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError
         except ValueError:
             return self.reply(400, {"error": "bad JSON"})
+        if p == "/api/settings":                    # the minimum level for sending to APRS-IS
+            try:
+                level = aprs_priority.save_min_level(body.get("min_level"))
+            except (ValueError, OSError) as e:
+                return self.reply(400, {"error": str(e)})
+            what = ("everything is sent" if level == aprs_priority.LEVELS[0]
+                    else f"objects below {level} are held back, and taken off APRS-IS if they are on it")
+            return self.reply(200, {"ok": True, "min_level": level,
+                                    "message": f"Minimum level: {level}. From each script's next poll, {what}."})
         try:
             code, payload = do_action(p[5:], body)
         except Exception as e:                      # keep the server alive whatever happens
@@ -588,6 +619,12 @@ header h1{font-size:16px;margin:0 0 2px}
 .row .cm{color:var(--ink);opacity:.9;overflow-wrap:anywhere}
 .row .sr{color:var(--mute);font-size:12px}
 .row .dist{float:right;color:var(--mute);font-size:12px;font-variant-numeric:tabular-nums}
+.lv{display:inline-block;font-size:11px;font-weight:600;padding:0 6px;border-radius:8px;color:#fff;margin-left:6px;text-transform:capitalize}
+.lv.critical{background:#c0362c}.lv.high{background:#d9630b}.lv.medium{background:#a47b00}.lv.low{background:#7a8594}
+#imp{font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+#imp .cnt{display:flex;flex-wrap:wrap;gap:6px 12px;margin:4px 0 6px}#imp .cnt span.lv{margin-left:0}
+#imp select{font:inherit;padding:2px 4px;background:var(--field);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+#imp small{color:var(--mute)}
 .tag{display:inline-block;font-size:11px;padding:0 5px;border-radius:8px;background:var(--tagbg);color:var(--tagink);margin-left:6px}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:0;padding:10px 14px 4px}
 #edit{display:none;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--soft)}
@@ -614,6 +651,7 @@ button.del{color:var(--danger);border-color:var(--dline)}
    <div id="meta">loading…</div><div id="fi" class="hint"></div></header>
   <div id="edit"></div>
   <div id="srcs"></div>
+  <div id="imp"></div>
   <div id="othr">
    <label class="src"><input type="checkbox" id="o_obj" onchange="setOther()"><span class="dot" style="background:#868e96"></span><span>Other APRS objects <small id="o_st"></small></span><span class="n" id="o_n1"></span></label>
    <label class="src"><input type="checkbox" id="o_path" onchange="setOther();render()"><span class="dot" style="background:none;border-top:2px dashed #868e96;border-radius:0;height:0"></span><span>Paths (where things have been)</span></label>
@@ -666,15 +704,20 @@ function icon(o){ const sh=symHtml(o);
   if(sh) return L.divIcon({className:"",html:`<div class="symw${o.edited?" ed":""}">${sh}<i style="background:${colorOf(o.source)}"></i></div>`,iconSize:[24,28],iconAnchor:[12,12]});
   return L.divIcon({className:"",html:`<div class="pin${o.edited?" ed":""}" style="background:${colorOf(o.source)}">${esc(tagOf(o.name))}</div>`,iconSize:null,iconAnchor:[18,11]});}
 // When the object last went to APRS-IS and when an unchanged one is sent again (from aprs_send.py's records).
+function lvTag(o){return `<span class="lv ${o.level}" title="${esc((o.reasons||[]).join("; "))} (score ${o.score})">${o.level}</span>`;}
+function setMin(v){api("settings",{min_level:v});}
 function sentInfo(o){ if(!data.sending) return null; const t=o.aprs_is, now=Date.now()/1000;
+  if(t&&t.held) return {sent:`held back: rated ${o.level}, below the minimum (${data.min_level})`, again:""};
   if(!t||!t.sent) return {sent:t&&t.waiting?"waiting to be sent":"not sent yet", again:""};
   const sent=`${hhmm(t.sent)} (${ago(t.sent)})`;
   if(t.waiting) return {sent, again:"waiting to be sent now"};
   return {sent, again:t.again<=now?"on the next poll":`after ${hhmm(t.again)}, or sooner if it changes`}; }
 function sentShort(o){ const s=sentInfo(o); if(!s) return ""; const t=o.aprs_is;
+  if(t&&t.held) return " · held back (below minimum)";
   if(!t||!t.sent||t.waiting) return ` · ${s.again||s.sent}`;
   return ` · sent ${hhmm(t.sent)}, again ${t.again<=Date.now()/1000?"next poll":"after "+hhmm(t.again)}`; }
-function popup(o){const s=sentInfo(o); return `<div class="pop"><b>${esc(o.name)}</b>${o.edited?'<span class="tag">edited</span>':""}<br>${esc(o.comment)||"<i>(no text)</i>"}<br>
+function popup(o){const s=sentInfo(o); return `<div class="pop"><b>${esc(o.name)}</b>${lvTag(o)}${o.edited?'<span class="tag">edited</span>':""}<br>${esc(o.comment)||"<i>(no text)</i>"}<br>
+<span class="k">Importance:</span> ${o.level} (score ${o.score}) · ${esc((o.reasons||[]).join("; "))}<br>
 <span class="k">Source:</span> ${srcLink(o)}<br><span class="k">Position:</span> ${o.lat.toFixed(5)}, ${o.lon.toFixed(5)}<br>
 ${s?`<span class="k">Last sent to APRS-IS:</span> ${s.sent}<br>${s.again?`<span class="k">Sends again:</span> ${s.again}<br>`:""}`:""}<span class="k">Last poll:</span> ${hhmm(o.updated)} · ${fiLink(o.name)}${o.expires?`<br><span class="k">Expires:</span> ${new Date(o.expires*1000).toLocaleString()}`:""}
 <div class="btns"><button onclick="startEdit(${js(o.name)})">Edit</button><button class="del" onclick="del(${js(o.name)})">Delete</button>
@@ -693,6 +736,11 @@ function render(){
   $("meta").textContent=`${data.objects.length} live · callsign ${data.callsign} · ${data.sending?"sending to APRS-IS":"print-only (not transmitting)"} · ${hhmm(data.now)}`;
   $("srcs").innerHTML=data.sources.map(s=>`<label class="src"><input type="checkbox" ${hidden.has(s.key)?"":"checked"} onchange="toggle(${js(s.key)},this.checked)">
     <span class="dot" style="background:${colorOf(s.key)}"></span><span>${esc(s.label)} <small>· polled ${hhmm(s.updated)}</small></span><span class="n">${s.count}</span></label>`).join("")||'<span class="hint">No state files found yet.</span>';
+  const LV=["critical","high","medium","low"], lv=data.levels||{};
+  $("imp").innerHTML=`<b>Importance</b><div class="cnt">${LV.map(l=>`<span><span class="lv ${l}">${l}</span> ${lv[l]||0}</span>`).join("")}</div>
+    <label>Send to APRS-IS: <select onchange="setMin(this.value)">${[["low","everything"],["medium","medium and above"],["high","high and above"],["critical","critical only"]]
+      .map(([v,t])=>`<option value="${v}"${data.min_level===v?" selected":""}>${t}</option>`).join("")}</select></label>
+    ${data.sending?(data.held?`<br><small>${data.held} held back, not on APRS-IS</small>`:""):"<br><small>print-only mode: nothing is sent</small>"}`;
   const sv=data.services.filter(s=>s.state&&s.state!=="STOPPED");
   $("svc").style.display=sv.length?"block":"none";
   $("svc").innerHTML="Services: "+sv.map(s=>`<b class="${s.state==="RUNNING"?"":"bad"}" title="${esc(s.note||"")}">${esc(s.service)} ${esc(s.state.toLowerCase())}</b>`).join(" · ");
@@ -715,7 +763,7 @@ function render(){
   // the list: nearest to the centre of the map first (re-sorted whenever the map is moved)
   const c=map.getCenter(), byDist=shown.map(o=>[o,away(c.lat,c.lng,o.lat,o.lon)]).sort((a,b)=>a[1].mi-b[1].mi);
   let h=byDist.map(([o,d])=>`<div class="row${sel===o.name?" sel":""}" style="border-left-color:${colorOf(o.source)}" onclick="select(${js(o.name)},true)">
-    <span class="nm">${esc(o.name)}</span>${o.edited?'<span class="tag">edited</span>':""}<span class="dist">${d.text}</span><div class="cm">${esc(o.comment)}</div><div class="sr">${esc(o.source_label)} · ${fiLink(o.name)}${sentShort(o)}</div></div>`).join("");
+    <span class="nm">${esc(o.name)}</span>${lvTag(o)}${o.edited?'<span class="tag">edited</span>':""}<span class="dist">${d.text}</span><div class="cm">${esc(o.comment)}</div><div class="sr">${esc(o.source_label)} · ${fiLink(o.name)}${sentShort(o)}</div></div>`).join("");
   if(!shown.length) h='<div class="row"><span class="sr">No live objects match.</span></div>';
   if(data.suppressed.length){h+=`<h2>Deleted here (${data.suppressed.length})</h2>`+data.suppressed.map(s=>`<div class="row"><span class="nm">${esc(s.name)}</span>
     <div class="cm">${esc(s.comment)}</div><div class="sr">${esc(s.source_label)} · deleted ${hhmm(s.ts)}</div>

@@ -137,8 +137,8 @@ class Rules(unittest.TestCase):
             book.offer(">a status line", "test", 1000)
             book.save()
             self.assertEqual(aprs_send.send_times(path), {
-                "FIRE1": {"sent": 1000, "again": 1000 + 26 * MIN, "waiting": False, "changed": 1000},
-                "FIRE2": {"sent": None, "again": None, "waiting": True, "changed": 1000}})
+                "FIRE1": {"sent": 1000, "again": 1000 + 26 * MIN, "waiting": False, "changed": 1000, "held": False},
+                "FIRE2": {"sent": None, "again": None, "waiting": True, "changed": 1000, "held": False}})
             self.assertEqual(aprs_send.send_times(os.path.join(d, "missing.json")), {})
 
 
@@ -281,6 +281,34 @@ class OneConnection(unittest.TestCase):
         time.sleep(0.1)
         self.assertEqual(self.server.lines, [])
         self.assertEqual(len(self.sender.book.due(1001)), 1)   # still waiting
+
+    def test_objects_below_the_minimum_level_are_held_back(self):
+        import aprs_priority
+        aprs_priority.save_min_level("medium", folder=self.dir.name)
+        fire, alarm, mine = obj("FIRE1", comment="BUILDING FIRE MAIN ST"), obj("FIRE2", comment="FIRE ALARM OAK ST"), obj("MYOBJ")
+        aprs_send.hand_over("montco", CALL, [fire, alarm, mine, ">status text"], folder=self.outbox)
+        self.assertEqual(self.sender.step(1000), 3)            # the alarm is rated low: not sent
+        self.assertEqual(sorted(self.wait_lines(3)), sorted(f"{CALL}>APRS,TCPIP*:{p}" for p in (fire, mine, ">status text")))
+        self.assertTrue(aprs_send.send_times(os.path.join(self.dir.name, "state.json"))["FIRE2"]["held"])
+        aprs_send.hand_over("montco", CALL, [obj("FIRE2", comment="FIRE ALARM OAK ST", live=False)], folder=self.outbox)
+        self.assertEqual(self.sender.step(1010), 0)            # its kill is not sent either: it was never on the air
+        self.assertNotIn("FIRE2    ", self.sender.book.records)
+
+    def test_raising_the_minimum_takes_objects_off_and_lowering_it_brings_them_back(self):
+        import aprs_priority
+        alarm = obj("FIRE2", comment="FIRE ALARM OAK ST")
+        aprs_send.hand_over("montco", CALL, [alarm], folder=self.outbox)
+        self.assertEqual(self.sender.step(1000), 1)            # minimum is low: everything is sent
+        aprs_priority.save_min_level("high", folder=self.dir.name)
+        aprs_send.hand_over("montco", CALL, [alarm], folder=self.outbox)
+        self.assertEqual(self.sender.step(1010), 1)            # on the air and now below the minimum: killed
+        self.assertEqual(self.wait_lines(2)[1], f"{CALL}>APRS,TCPIP*:;FIRE2    _241500z4007.20N/07520.40Wd")
+        aprs_send.hand_over("montco", CALL, [alarm], folder=self.outbox)
+        self.assertEqual(self.sender.step(1020), 0)            # and it stays off, with no second kill
+        aprs_priority.save_min_level("low", folder=self.dir.name)
+        aprs_send.hand_over("montco", CALL, [alarm], folder=self.outbox)
+        self.assertEqual(self.sender.step(1030), 1)
+        self.assertEqual(self.wait_lines(3)[2], f"{CALL}>APRS,TCPIP*:{alarm}")
 
     def test_print_only_mode_never_connects(self):
         sender = aprs_send.Sender(CALL, False, self.outbox, None, None)

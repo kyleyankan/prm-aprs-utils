@@ -30,6 +30,12 @@ Nothing else may log in to APRS-IS with this callsign and its passcode: servers 
 of two such connections.  The listener in aprs_web.py logs in receive-only for that reason.  A waiting object that no script has asked for in the last
 30 minutes is dropped instead of being sent late; a waiting kill is always sent.
 
+Minimum level: every object is rated critical, high, medium or low (aprs_priority.py).  With
+a minimum level above low (chosen on the web map, or --min-level), live objects rated lower
+are held back.  One that is already on the air when the minimum is raised gets a kill packet
+on its script's next hand-over.  Kills, status lines and objects the rules do not know are
+never held back.
+
 Everything is remembered in sender_state.json, so a restart does not re-send everything.
 Without --send nothing is transmitted and no connection is made: the packets that would
 have been sent are printed.
@@ -47,6 +53,8 @@ import socket
 import sys
 import time
 
+import aprs_priority
+
 HOST, PORT = "rotate.aprs2.net", 14580
 VERSION = "aprs-send 1.0"
 OUTBOX = "outbox"
@@ -54,6 +62,7 @@ STATE_FILE = "sender_state.json"
 RESEND_MINUTES = 26
 STALE_SECONDS = 30 * 60          # a waiting object nobody has asked for this long is not sent late
 FORGET_SECONDS = 24 * 3600       # a live object no script has mentioned for this long is forgotten
+HELD_FORGET_SECONDS = 3600       # likewise for an object that was held back and never sent
 BACKLOG_WARN = 300               # a script warns when the outbox holds a file older than this
 SILENT_SECONDS = 90              # servers send a line every ~20 s; this long without one = dead link
 KEEPALIVE_SECONDS = 600
@@ -171,7 +180,7 @@ class Book:
                                      "changed": float(r.get("changed") or 0), "packet": r.get("packet") or None,
                                      "seen": float(r.get("seen") or 0), "source": str(r.get("source") or ""),
                                      "pending": r.get("pending") or None, "reason": str(r.get("reason") or ""),
-                                     "again": bool(r.get("again"))}
+                                     "again": bool(r.get("again")), "held": bool(r.get("held"))}
 
     def save(self):
         if not self.path or not self.dirty:
@@ -183,16 +192,38 @@ class Book:
         os.replace(tmp, self.path)
         self.dirty = False
 
-    def offer(self, packet, source, now):
-        """A script wants this packet on the air.  Returns why it will be sent, or '' if it need not be."""
+    def offer(self, packet, source, now, hold=False):
+        """A script wants this packet on the air.  Returns why it will be sent, or '' if it need not be.
+        hold: the object is below the minimum level for sending.  It is not sent; if it is on the air
+        already it is killed ("taken off"), because an object is never just abandoned."""
         if not packet or len(packet) > 500 or any(ch in packet for ch in "\r\n"):
             return ""
         key, live, body = split_packet(packet)
         r = self.records.get(key)
+        held = False
+        if live and hold:
+            if r and r["live"] and r["sent"] is not None:          # on the air: take it off
+                packet = packet[:10] + "_" + packet[11:37]
+                live, body, held = False, packet[18:], True
+            else:                                                  # never on the air: only remember it, so that
+                if r and not r["live"]:                            # the script's own kill later is not sent
+                    r["seen"], r["held"] = now, True
+                else:
+                    self.records[key] = {"live": False, "body": body, "sent": None, "changed": now, "seen": now,
+                                         "source": source, "pending": None, "reason": "held", "packet": None,
+                                         "again": False, "held": True}
+                self.dirty = True
+                return ""
         if not live:
-            if r and not r["live"] and (r["pending"] or now - r["sent"] < self.resend):   # not live: sent or waiting
+            if r and not r["live"] and r["sent"] is None and not r["pending"]:
+                del self.records[key]                      # held back and never sent: nothing to kill
+                self.dirty = True
+                return ""
+            if r and not r["live"] and (r["pending"] or now - r["sent"] < self.resend):
+                if held:
+                    r["seen"], r["held"] = now, True
                 return ""                                  # this kill is already sent or waiting
-            reason = "kill"
+            reason = "taken off" if held else "kill"
         elif r is None or not r["live"]:
             reason = "new"
         elif r["body"] != body:
@@ -210,7 +241,7 @@ class Book:
         changed = r["changed"] if same else now
         self.records[key] = {"live": live, "body": body, "sent": r["sent"] if r else None, "changed": changed,
                              "seen": now, "source": source, "pending": packet, "reason": reason,
-                             "packet": r["packet"] if r else None, "again": False}
+                             "packet": r["packet"] if r else None, "again": False, "held": held}
         self.dirty = True
         return reason
 
@@ -249,7 +280,12 @@ class Book:
 
     def prune(self, now):
         for key, r in list(self.records.items()):
-            if r["pending"] or r["sent"] is None:
+            if r["pending"]:
+                continue
+            if r["sent"] is None:                          # held back and never sent, or waiting for its first send
+                if r.get("held") and now - r["seen"] > HELD_FORGET_SECONDS:
+                    del self.records[key]
+                    self.dirty = True
                 continue
             if (not r["live"] and now - r["sent"] >= self.resend) or now - r["seen"] > FORGET_SECONDS:
                 del self.records[key]
@@ -266,11 +302,15 @@ def send_times(path=None):
         resend = float(raw.get("resend") or RESEND_MINUTES * 60)
         out = {}
         for key, r in raw["records"].items():
-            if key.startswith("\x00") or not r.get("live"):
+            if key.startswith("\x00"):
+                continue
+            if r.get("held"):                              # below the minimum level: not on APRS-IS
+                out[key.strip()] = {"sent": None, "again": None, "waiting": False, "changed": None, "held": True}
+            if not r.get("live"):
                 continue
             sent = r.get("sent")
             out[key.strip()] = {"sent": sent, "again": sent + resend if sent is not None else None,
-                                "waiting": bool(r.get("pending")), "changed": r.get("changed") or None}
+                                "waiting": bool(r.get("pending")), "changed": r.get("changed") or None, "held": False}
         return out
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return {}
@@ -409,13 +449,33 @@ class Link:
 # The service
 # --------------------------------------------------------------------------
 class Sender:
-    def __init__(self, callsign, send=False, folder=None, state=None, link=None, resend=RESEND_MINUTES * 60, pace=0.05):
+    def __init__(self, callsign, send=False, folder=None, state=None, link=None, resend=RESEND_MINUTES * 60, pace=0.05,
+                 min_level=aprs_priority.DEFAULT_MIN, settings_dir=None):
         self.callsign, self.transmit, self.link, self.pace = callsign.upper(), send, link, pace
         self.folder = outbox_dir(folder)
         self.book = Book(self.callsign, state, resend)
+        self.min_default, self.min_level = min_level, None     # the web map's choice wins over the default
+        self.settings_dir = settings_dir or (os.path.dirname(os.path.abspath(state)) if state else None)
+
+    def read_min_level(self):
+        level = aprs_priority.load_min_level(self.min_default, self.settings_dir)
+        if level != self.min_level:
+            what = "everything is sent" if level == aprs_priority.LEVELS[0] else f"objects below {level} are held back"
+            print(f"# minimum level for sending: {level} ({what})", file=sys.stderr, flush=True)
+            self.min_level = level
+        return level
+
+    def below_minimum(self, packet, source):
+        """True for a live object the rules rate below the minimum level.  Kills, status lines and
+        objects the rules do not know are never held back."""
+        if self.min_level == aprs_priority.LEVELS[0] or packet[10:11] != "*":
+            return False
+        r = aprs_priority.rate_packet(packet, source)
+        return bool(r and r["rated"] and not aprs_priority.at_least(r["level"], self.min_level))
 
     def take_outbox(self, now):
         """Read every waiting hand-over file, oldest first.  Returns the names read (delete them after saving)."""
+        self.read_min_level()
         try:
             names = sorted(n for n in os.listdir(self.folder) if n.endswith(".json") and not n.startswith("."))
         except OSError:
@@ -434,13 +494,18 @@ class Sender:
                       f"this sender is {self.callsign}", file=sys.stderr, flush=True)
                 continue
             when = min(when, now)                              # an old file counts as asked-for when it was written
-            reasons = {}
+            reasons, held = {}, 0
             for p in packets:
-                why = self.book.offer(p, source, when) if isinstance(p, str) else ""
-                reasons[why] = reasons.get(why, 0) + 1
+                if not isinstance(p, str):
+                    continue
+                hold = self.below_minimum(p, source)
+                why = self.book.offer(p, source, when, hold)
+                held += hold and not why
+                reasons[why] = reasons.get(why, 0) + (not (hold and not why))
             wanted = ", ".join(f"{n} {why}" for why, n in sorted(reasons.items()) if why)
             if wanted:
-                print(f"# {source}: {wanted}; {reasons.get('', 0)} need no sending", file=sys.stderr, flush=True)
+                back = f"; {held} held back (below {self.min_level})" if held else ""
+                print(f"# {source}: {wanted}; {reasons.get('', 0)} need no sending{back}", file=sys.stderr, flush=True)
         return names
 
     def clear(self, names):
@@ -527,6 +592,9 @@ def main():
     ap.add_argument("--send", action="store_true", help="really send to APRS-IS (without it, packets are only printed)")
     ap.add_argument("--resend-minutes", type=float, default=RESEND_MINUTES,
                     help=f"re-send an unchanged object after this many minutes (default {RESEND_MINUTES}, minimum 5)")
+    ap.add_argument("--min-level", default=aprs_priority.DEFAULT_MIN, choices=aprs_priority.LEVELS,
+                    help="send only objects rated at least this important; the choice made on the web map "
+                         "(sender_settings.json) wins over this (default low = everything; see aprs_priority.py)")
     ap.add_argument("--outbox", help=f"hand-over folder (default: {OUTBOX}/ in $APRS_DATA_DIR, else in the current folder)")
     ap.add_argument("--state-file", help=f"default: {STATE_FILE} beside the outbox folder")
     ap.add_argument("--list", action="store_true", help="show what is on the air and when each object was sent, then exit")
@@ -549,7 +617,7 @@ def main():
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, stop)
     os.makedirs(outbox_dir(args.outbox), exist_ok=True)
-    Sender(args.callsign, args.send, args.outbox, state, link, resend).run()
+    Sender(args.callsign, args.send, args.outbox, state, link, resend, min_level=args.min_level).run()
 
 
 if __name__ == "__main__":

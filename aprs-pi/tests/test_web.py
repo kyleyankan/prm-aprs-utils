@@ -72,6 +72,35 @@ class PacketsNear(unittest.TestCase):
         self.assertEqual((live["miles"], live["source"], live["sent"]), (0.0, "montco", 1000))
         self.assertNotIn("rf", aprs_web.packets_near({"lat": "40.12", "lon": "-75.34"})[1]["packets"][0])
 
+    def test_min_keeps_the_important_ones_and_they_come_first(self):
+        book = aprs_send.Book(CALL, os.path.join(self.dir.name, aprs_send.STATE_FILE))
+        for name, text in (("FIRE1", "BUILDING FIRE MAIN ST"), ("FIRE2", "FIRE ALARM OAK ST"),
+                           ("TORPHI123", "TORNADO WRN til 3PM"), ("WORK1", "roadwork US 202")):
+            packet = obj(name, "4008.00N", "07520.40W", text)
+            book.offer(packet, "montco", 1000)
+            book.mark_sent(aprs_send.split_packet(packet)[0], 1000)
+        book.save()
+        self.assertEqual(self.names(miles="10")[:4], ["GONE1", "TORPHI123", "FIRE1", "NEAR1"])
+        self.assertEqual(self.names(miles="10", min="high"), ["GONE1", "TORPHI123", "FIRE1"])
+        self.assertEqual(self.names(miles="10", min="critical", kills="0"), ["TORPHI123"])
+        _code, payload = aprs_web.packets_near({"lat": "40.12", "lon": "-75.34", "miles": "10"})
+        self.assertEqual(payload["levels"], {"low": 2, "medium": 2, "high": 1, "critical": 1})
+        tor = [p for p in payload["packets"] if p["name"] == "TORPHI123"][0]
+        self.assertEqual((tor["level"], tor["reasons"]), ("critical", ["tornado warning"]))
+        self.assertEqual(aprs_web.packets_near({"lat": "40", "lon": "-75", "min": "urgent"})[0], 400)
+
+    def test_the_object_list_counts_each_level(self):
+        aprs_web.OWN_TRAILS = None
+        with open(os.path.join(self.dir.name, "aprs_live_state.json"), "w") as f:
+            json.dump({"callsign": CALL, "objects": {
+                "FIRE1": {"lat": 40.12, "lon": -75.34, "table": "/", "code": "d", "comment": "BUILDING FIRE MAIN ST"},
+                "FIRE2": {"lat": 40.12, "lon": -75.34, "table": "/", "code": "d", "comment": "FIRE ALARM OAK ST"},
+                "WORK1": {"lat": 40.12, "lon": -75.34, "table": "/", "code": ".", "comment": "roadwork US 202"}}}, f)
+        snap = aprs_web.snapshot()
+        self.assertEqual(snap["levels"], {"low": 2, "medium": 0, "high": 1, "critical": 0})
+        self.assertEqual(snap["min_level"], "low")
+        self.assertEqual({o["name"]: o["level"] for o in snap["objects"]}, {"FIRE1": "high", "FIRE2": "low", "WORK1": "low"})
+
     def test_bad_requests_are_refused(self):
         for q in ({}, {"lat": "40.12"}, {"lat": "x", "lon": "-75"}, {"lat": "95", "lon": "-75"},
                   {"lat": "40", "lon": "-75", "miles": "0"}, {"lat": "40", "lon": "-75", "miles": "5000"},

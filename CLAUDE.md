@@ -30,6 +30,9 @@ with the code.
   editor hand packets to it with `aprs_send.Outbox` (files in `data/outbox/`); never add another
   sending connection. It sends an object when it is new, changed or killed, or last sent 26 minutes
   or more ago, and only acts on what a script hands over.
+- **Importance rules live in one file**, `aprs-pi/aprs_priority.py` (levels critical, high, medium,
+  low). The sender's minimum level, the web map and `/api/packets` all use it; change the rules
+  there and add a case to `tests/test_priority.py`.
 - **APRS object rules:** names at most 9 characters and stable from poll to poll; comments fitted to
   `COMMENT_LENGTH` (67, or 43 for strict clients); an object that is no longer wanted is killed
   (`_` instead of `*`), never just abandoned; a failed fetch kills nothing.
@@ -48,7 +51,7 @@ with the code.
 python3 aprs_pa511.py --help  # every feed script has --help; pa511 also has --dump
 ./aprs_ctl.sh logs send -f    # what was really sent to APRS-IS, and why
 cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list   # each object: last change, last send
-cd tests && python3 -m unittest test_send test_web               # sender and web API tests (fake APRS-IS on localhost)
+cd tests && python3 -m unittest test_priority test_send test_web  # rating, sender and web API tests (fake APRS-IS on localhost)
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
 # aprs-mapimage
@@ -60,7 +63,7 @@ python3 aprs-mapimage/tools/sync_shared.py --check   # exit 1 if the two copies 
 ```
 
 Tests: `aprs-mapimage/tests/README.md` (development harnesses with fake APRS-IS, fake map services
-and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_send.py`, `test_web.py` (unittest). Use a
+and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_priority.py`, `test_send.py`, `test_web.py` (unittest). Use a
 made-up callsign such as `TEST-13` with a fake server: `--send` refuses `N0CALL`.
 
 ## Layout notes

@@ -296,6 +296,8 @@ outbox every second.
 | unchanged, last sent 26 minutes or more ago, and a script still wants it | Yes |
 | unchanged and sent less than 26 minutes ago | No |
 | a kill that was already sent in the last 26 minutes | No |
+| rated below the minimum level, and not on the air | No, held back |
+| rated below the minimum level, and on the air | A kill is sent, once |
 
 - **Time stamps:** the time stamp inside an object packet does not count as a change.
 - **Only on request:** the sender acts only on what a script hands over. When a script stops,
@@ -303,6 +305,30 @@ outbox every second.
 - **The 26 minutes:** set with `EXTRA_send="--resend-minutes 20"` in `aprs.env`. Scripts poll
   every 2 minutes, so a re-send goes out on the first poll after the time is up.
 - **Storms move:** a tracked storm's position changes every poll, so it is sent every poll.
+
+### Importance and the minimum level
+
+`aprs_priority.py` rates every object, and three places use the rating: the sender, the web map
+and `/api/packets`.
+
+| Level | Score | Examples |
+|---|---|---|
+| critical | 80-100 | tornado warning; entrapment, extrication, explosion, collapse, hazmat, fatal crash |
+| high | 60-79 | building fires, rescues, serious crashes, all lanes closed, severe weather warnings |
+| medium | 40-59 | other fires, crashes, road closures, medical calls, other weather warnings |
+| low | 0-39 | alarms, investigations, hazards, disabled vehicles, delays, roadwork, weather watches |
+
+- **Level:** read from the object's name tag (`FIRE`, `TRAF`, `WORK`, `TOR` ...) and the call or
+  event type at the start of its text. It never changes during the object's life, so filtering
+  by level does not make objects come and go.
+- **Score:** orders objects within a level: higher while new or just changed (fading over two
+  hours), lower when the position is approximate.
+- **Limits:** the rules are only as good as the source's wording. "VEHICLE ACCIDENT" with and
+  without injuries looks the same unless the source says so.
+- **Minimum level for sending:** chosen on the web map and kept in `data/sender_settings.json`.
+  The sender holds back live objects rated lower. One already on the air is killed on its
+  script's next hand-over, because an object is never just abandoned. Kills, status lines and
+  objects made by hand are never held back.
 
 ### When APRS-IS cannot be reached
 
@@ -347,9 +373,11 @@ no connection. This is the safe test mode and the default.
   There is no login, so it belongs on a trusted network only.
 - **Send times:** each object shows when it was last sent to APRS-IS and when an unchanged one
   is sent again, read from the sender's `sender_state.json`.
+- **Importance:** each object shows its level and the reasons; the side panel counts each level and
+  holds the "Send to APRS-IS" minimum-level choice.
 - **Packets for radios:** `GET /api/packets?lat=&lon=&miles=` lists the object packets last sent to
-  APRS-IS within a distance of a point, recent kills first, so a radio in that area can transmit
-  them. With `via=CALL` each comes in third-party form (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which
+  APRS-IS within a distance of a point, recent kills first and then the most important, so a radio
+  in that area can transmit them. `min=high` keeps only objects rated at least that important. With `via=CALL` each comes in third-party form (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which
   keeps this station as the sender and stops igates passing the packet back to APRS-IS. It reads
   the sender's `sender_state.json` and transmits nothing itself.
 - **Edit and delete:** stored in `overrides.json`, which every feed script applies on its next
@@ -385,7 +413,8 @@ no connection. This is the safe test mode and the default.
 | `custom_live_state.json` | web service | objects created on the web page |
 | `overrides.json` | web service | edits and deletes, read by every feed script |
 | `outbox/*.json` | feed scripts and web service | packets waiting for the sender |
-| `sender_state.json` | sender | what was sent, when, and what is waiting |
+| `sender_state.json` | sender | what was sent, when, what is waiting and what is held back |
+| `sender_settings.json` | web service | the minimum level for sending, read by the sender |
 | `geocache_google.json`, `geocache_chesco.json` | montco, chesco | Google geocoding results, 30 days |
 | `nj_counties.json` | nj511 | New Jersey county outlines |
 | `nws_zone_cache.json` | nws | NWS zone outlines |
