@@ -48,7 +48,7 @@ with the code.
 python3 aprs_pa511.py --help  # every feed script has --help; pa511 also has --dump
 ./aprs_ctl.sh logs send -f    # what was really sent to APRS-IS, and why
 cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list   # each object: last change, last send
-cd tests && python3 -m unittest test_send                        # sender tests (fake APRS-IS on localhost)
+cd tests && python3 -m unittest test_send test_web               # sender and web API tests (fake APRS-IS on localhost)
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
 # aprs-mapimage
@@ -60,7 +60,7 @@ python3 aprs-mapimage/tools/sync_shared.py --check   # exit 1 if the two copies 
 ```
 
 Tests: `aprs-mapimage/tests/README.md` (development harnesses with fake APRS-IS, fake map services
-and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_send.py` (unittest). Use a
+and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_send.py`, `test_web.py` (unittest). Use a
 made-up callsign such as `TEST-13` with a fake server: `--send` refuses `N0CALL`.
 
 ## Layout notes

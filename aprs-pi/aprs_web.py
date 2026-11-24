@@ -32,6 +32,9 @@ at shutdown, and loaded again at start.  Starting without a saved state from the
 last 30 minutes, it also tries once to fetch recent history (see aprs_listen.py).
 The listener only receives; set APRS_LISTEN=0 (or --no-listen) to disable it.
 
+GET /api/packets?lat=..&lon=..&miles=25 lists our own object packets within that distance of a
+point, for a radio in that area to transmit (see README.txt, "Packets for radios").
+
 GET /eink.png (or /eink.bmp) returns a black-and-white picture of the map and object
 list for an e-ink display, 272x792 by default; see aprs_eink.py for the options.
 
@@ -40,6 +43,7 @@ There is NO login: run it on a trusted internal network only.
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import signal
@@ -171,6 +175,59 @@ def snapshot():
     return {"objects": live, "suppressed": sorted(suppressed, key=lambda r: -r["ts"]),
             "sources": sorted(sources.values(), key=lambda s: s["label"]), "services": service_status(),
             "sending": bool(ARGS.send), "callsign": ARGS.callsign, "now": time.time()}
+
+
+def miles_between(lat1, lon1, lat2, lon2):
+    """Great-circle distance in miles."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 3958.8 * 2 * math.asin(min(1.0, math.sqrt(a)))
+
+
+VIA_OK = re.compile(r"[A-Z0-9]{1,6}(-[A-Z0-9]{1,2})?")
+
+
+def packets_near(q):
+    """GET /api/packets: our own object packets within `miles` of lat,lon, for a radio there to transmit.
+    -> (status, payload).  With --send these are the packets as last sent to APRS-IS, kills of the last
+    26 minutes included; in print-only mode they are built from the scripts' state files (no kills)."""
+    try:
+        lat, lon = float(q["lat"]), float(q["lon"])
+        miles = float(q.get("miles", 25))
+        since = float(q.get("since", 0) or 0)
+        limit = int(q.get("limit", 0) or 0)
+    except KeyError:
+        return 400, {"error": "lat and lon are required, e.g. /api/packets?lat=40.12&lon=-75.34&miles=25"}
+    except ValueError:
+        return 400, {"error": "lat, lon, miles, since and limit must be numbers"}
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180 and 0 < miles <= 1000):
+        return 400, {"error": "lat must be -90..90, lon -180..180 and miles more than 0 and at most 1000"}
+    via = str(q.get("via", "")).upper()
+    if via and not VIA_OK.fullmatch(via):
+        return 400, {"error": "via must be a callsign, e.g. via=W3XYZ-10"}
+    if ARGS.send:
+        recs = aprs_send.on_air()
+    else:
+        recs = [{"name": o["name"], "live": True, "lat": o["lat"], "lon": o["lon"], "sent": None, "changed": o["updated"],
+                 "source": o["source"],
+                 "packet": ov.packet(o["name"], o["lat"], o["lon"], o["table"], o["code"], o["comment"])}
+                for o in snapshot()["objects"]]
+    out = []
+    for r in recs:
+        d = miles_between(lat, lon, r["lat"], r["lon"])
+        if d > miles or (not r["live"] and q.get("kills", "1") == "0") or (since and (r["changed"] or 0) < since):
+            continue
+        item = {"name": r["name"], "live": r["live"], "lat": round(r["lat"], 5), "lon": round(r["lon"], 5),
+                "miles": round(d, 1), "source": r["source"], "sent": r["sent"], "changed": r["changed"],
+                "info": r["packet"], "tnc2": f"{ARGS.callsign}>APRS,TCPIP*:{r['packet']}"}
+        if via:                                   # third-party form: what a gateway station puts on the air
+            item["rf"] = f"}}{ARGS.callsign}>APRS,TCPIP,{via}*:{r['packet']}"
+        out.append(item)
+    out.sort(key=lambda i: (i["live"], i["miles"]))        # kills first (few, and they matter), then nearest
+    if limit > 0:
+        out = out[:limit]
+    return 200, {"callsign": ARGS.callsign, "centre": [lat, lon], "miles": miles, "now": time.time(),
+                 "sending": bool(ARGS.send), "count": len(out), "packets": out}
 
 
 def prune(overrides, objects):
@@ -418,6 +475,14 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, PAGE.encode(), "text/html; charset=utf-8")
         elif p == "/api/objects":
             self.reply(200, snapshot())
+        elif p == "/api/packets":
+            q = self.query()
+            code, payload = packets_near(q)
+            if code == 200 and q.get("format") == "text":          # one packet per line, ready to transmit
+                lines = [i.get("rf") or i["tnc2"] for i in payload["packets"]]
+                return self.reply(200, ("\n".join(lines) + "\n" if lines else "").encode("ascii", "replace"),
+                                  "text/plain; charset=us-ascii")
+            self.reply(code, payload)
         elif p == "/api/aprs":
             if not LISTENER:
                 return self.reply(200, {"enabled": False, "objects": []})

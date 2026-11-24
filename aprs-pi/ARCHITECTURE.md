@@ -347,6 +347,11 @@ no connection. This is the safe test mode and the default.
   There is no login, so it belongs on a trusted network only.
 - **Send times:** each object shows when it was last sent to APRS-IS and when an unchanged one
   is sent again, read from the sender's `sender_state.json`.
+- **Packets for radios:** `GET /api/packets?lat=&lon=&miles=` lists the object packets last sent to
+  APRS-IS within a distance of a point, recent kills first, so a radio in that area can transmit
+  them. With `via=CALL` each comes in third-party form (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which
+  keeps this station as the sender and stops igates passing the packet back to APRS-IS. It reads
+  the sender's `sender_state.json` and transmits nothing itself.
 - **Edit and delete:** stored in `overrides.json`, which every feed script applies on its next
   poll, so a correction sticks even though the source still reports the original. The corrected
   packet or the kill is also handed to the sender at once.

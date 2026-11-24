@@ -40,6 +40,7 @@ For the scripts:   box = aprs_send.Outbox("montco", "W3XYZ-9")
 import argparse
 import json
 import os
+import re
 import select
 import signal
 import socket
@@ -273,6 +274,39 @@ def send_times(path=None):
         return out
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return {}
+
+
+POSITION = re.compile(r"^;.{9}[*_]\d{6}[zh/](\d\d)(\d\d\.\d\d)([NS]).(\d{3})(\d\d\.\d\d)([EW])")
+
+
+def packet_position(packet):
+    """(lat, lon) in degrees from an object packet with a plain (uncompressed) position, else None."""
+    m = POSITION.match(packet or "")
+    if not m:
+        return None
+    lat = int(m[1]) + float(m[2]) / 60
+    lon = int(m[4]) + float(m[5]) / 60
+    return (-lat if m[3] == "S" else lat, -lon if m[6] == "W" else lon)
+
+
+def on_air(path=None):
+    """For the web service: every object packet last sent to APRS-IS, live ones and recent kills.
+    -> [{name, live, packet, lat, lon, sent, changed, source}]; objects still waiting for their first
+    send, and anything whose position cannot be read, are left out."""
+    try:
+        with open(path or os.path.join(data_dir(), STATE_FILE)) as f:
+            records = json.load(f)["records"]
+        out = []
+        for key, r in records.items():
+            pos = packet_position(r.get("packet"))
+            if key.startswith("\x00") or r.get("sent") is None or not pos:
+                continue
+            out.append({"name": key.strip(), "live": r["packet"][10] == "*", "packet": r["packet"],
+                        "lat": pos[0], "lon": pos[1], "sent": r["sent"], "changed": r.get("changed") or r["sent"],
+                        "source": str(r.get("source") or "")})
+        return out
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError):
+        return []
 
 
 # --------------------------------------------------------------------------

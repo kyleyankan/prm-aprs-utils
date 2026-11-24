@@ -38,6 +38,25 @@ Sending to APRS-IS (one connection)
      Upgrading: copy the new files, then ./aprs_ctl.sh restart. Everything is sent once at the
      first start, because the sender does not yet know what is on the air.
 
+Packets for radios (which of our objects are near a point)
+     http://<pi address>:8080/api/packets?lat=40.12&lon=-75.34&miles=25
+     Lists the objects this station has on APRS-IS within that many miles of the point, so a radio
+     in that area can put them on the air. Kills from the last 26 minutes are included and come
+     first: a radio that sent an object should send its kill too. Then the nearest objects.
+     Options:  miles=25 (default, up to 1000)   kills=0 leaves kills out   limit=20 at most that many
+               since=<unix time>  only objects new or changed since then
+               via=W3XYZ-10       adds "rf": the packet in third-party form for that gateway
+               format=text        one packet per line instead of JSON
+     Each JSON entry has name, live, lat, lon, miles, source, sent, changed, and the packet as
+       info   ;FIRE7K2QX*241740z4007.80N/07519.80Wd...            the object itself
+       tnc2   K3YLE-15>APRS,TCPIP*:;FIRE7K2QX*...                 as it was sent to APRS-IS
+       rf     }K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*...       (with via=) what the radio transmits
+     Use "rf" on the air. A radio that sends the bare object under its own callsign becomes the
+     object's owner, and an igate that hears it puts a second copy on APRS-IS; the third-party
+     form keeps K3YLE-15 as the sender and igates do not pass it back.
+     This only lists packets. The radio's own program decides what to transmit and how often.
+     With SEND=0 the list is built from the scripts' state files and has no kills.
+
 E-ink picture
      http://<pi address>:8080/eink.png      black-and-white map + object list, 272x792
      Options: ?w=&h=&miles=&lat=&lon=&rotate=90&list=0&invert=1&gray=1   (or /eink.bmp)
