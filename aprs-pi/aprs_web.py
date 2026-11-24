@@ -753,7 +753,7 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("WEB_PORT") or 8080))
     ap.add_argument("--bind", default=os.environ.get("WEB_BIND") or "0.0.0.0")
     ap.add_argument("--callsign", default="N0CALL")
-    ap.add_argument("--passcode", type=int, help="passcode for the receive-only listener (default: none needed)")
+    ap.add_argument("--passcode", type=int, help="passcode for the listener (default: -1, a receive-only login; leave it unset)")
     ap.add_argument("--send", action="store_true", help="hand edits/deletes to aprs_send.py for sending at once")
     ap.add_argument("--comment-length", type=int, default=67)
     ap.add_argument("--interval", type=int, default=0, help="ignored (accepted so aprs_ctl.sh can launch this)")
@@ -787,7 +787,10 @@ def main():
         global LISTENER
         hlat, hlon = aprs_eink.home_position() if aprs_eink else (40.12, -75.34)
         LISTENER = aprs_listen.Listener(ARGS.callsign, hlat, hlon, max(1, ARGS.listen_miles),
-                                        max_age=max(300, ARGS.listen_minutes * 60), login_pass=ARGS.passcode,
+                                        max_age=max(300, ARGS.listen_minutes * 60),
+                                        # receive-only login: a second verified login with the callsign
+                                        # aprs_send.py uses makes APRS-IS servers drop one of the two
+                                        login_pass=-1 if ARGS.passcode is None else ARGS.passcode,
                                         trail_minutes=max(5, ARGS.trail_minutes),
                                         host=os.environ.get("APRS_IS_HOST") or aprs_listen.HOST,
                                         port=int(os.environ.get("APRS_IS_PORT") or aprs_listen.PORT))

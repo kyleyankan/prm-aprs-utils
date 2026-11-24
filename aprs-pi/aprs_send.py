@@ -23,7 +23,11 @@ a repeat of the same kill within the resend time is dropped.
 
 While APRS-IS cannot be reached, what is due waits (newest version of each object) and
 goes out after the next login.  When a connection is found dead, whatever was sent since
-the server was last heard from (it sends a line every 20 seconds or so) is sent again.  A waiting object that no script has asked for in the last
+the server was last heard from (it sends a line every 20 seconds or so) is sent again, once.
+If connections keep dying within a minute, each reconnect waits longer (up to 5 minutes).
+
+Nothing else may log in to APRS-IS with this callsign and its passcode: servers close one
+of two such connections.  The listener in aprs_web.py logs in receive-only for that reason.  A waiting object that no script has asked for in the last
 30 minutes is dropped instead of being sent late; a waiting kill is always sent.
 
 Everything is remembered in sender_state.json, so a restart does not re-send everything.
@@ -165,7 +169,8 @@ class Book:
                                      "sent": None if r.get("sent") is None else float(r["sent"]),
                                      "changed": float(r.get("changed") or 0), "packet": r.get("packet") or None,
                                      "seen": float(r.get("seen") or 0), "source": str(r.get("source") or ""),
-                                     "pending": r.get("pending") or None, "reason": str(r.get("reason") or "")}
+                                     "pending": r.get("pending") or None, "reason": str(r.get("reason") or ""),
+                                     "again": bool(r.get("again"))}
 
     def save(self):
         if not self.path or not self.dirty:
@@ -203,7 +208,7 @@ class Book:
         changed = r["changed"] if same else now
         self.records[key] = {"live": live, "body": body, "sent": r["sent"] if r else None, "changed": changed,
                              "seen": now, "source": source, "pending": packet, "reason": reason,
-                             "packet": r["packet"] if r else None}
+                             "packet": r["packet"] if r else None, "again": False}
         self.dirty = True
         return reason
 
@@ -230,11 +235,12 @@ class Book:
             self.dirty = True
 
     def requeue_since(self, when):
-        """The connection died: what was sent at or after `when` may not have arrived, so it waits again."""
+        """The connection died: what was sent at or after `when` may not have arrived, so it waits again.
+        Each packet gets this second chance once, so a connection that keeps dropping cannot cause a flood."""
         n = 0
         for r in self.records.values():
-            if r["sent"] is not None and r["sent"] >= when and not r["pending"] and r["packet"]:
-                r["pending"], r["reason"] = r["packet"], "again"
+            if r["sent"] is not None and r["sent"] >= when and not r["pending"] and r["packet"] and not r["again"]:
+                r["pending"], r["reason"], r["again"] = r["packet"], "again", True
                 n += 1
         self.dirty = self.dirty or n > 0
         return n
@@ -258,6 +264,7 @@ class Link:
         self.heard = self.spoke = 0.0
         self.retry_at, self.delay, self.told = 0.0, 15, False
         self.doubt = None            # set when the connection dies: packets sent since then may be lost
+        self.since, self.short = 0.0, 0     # when this connection began; how many in a row died young
 
     def up(self):
         return self.sock is not None
@@ -278,6 +285,7 @@ class Link:
             f.close()                                                  # the socket itself stays open
             sock.setblocking(False)
             self.sock, self.buf, self.heard, self.spoke, self.delay, self.told = sock, b"", now, now, 15, False
+            self.since = now
             print(f"# connected to APRS-IS ({self.host}:{self.port}) as {self.callsign}", file=sys.stderr, flush=True)
             return True
         except OSError as e:
@@ -295,9 +303,15 @@ class Link:
                 self.sock.close()
             except OSError:
                 pass
-            print(f"# APRS-IS connection lost ({why}); reconnecting", file=sys.stderr, flush=True)
             self.doubt = self.heard                        # the last moment the server was known to be there
-        self.sock, self.retry_at = None, now + 5
+            self.short = self.short + 1 if now - self.since < 60 else 0
+            wait = min(300, 5 * 2 ** self.short)           # 5 s normally; longer each time a connection dies young
+            print(f"# APRS-IS connection lost ({why}); reconnecting in {wait}s", file=sys.stderr, flush=True)
+            if self.short == 3:
+                print("# the connection keeps being closed straight after login: is something else logged in "
+                      f"to APRS-IS as {self.callsign} with a passcode?", file=sys.stderr, flush=True)
+            self.retry_at = now + wait
+        self.sock = None
 
     def write(self, line, now):
         """Send one line.  Returns False (and drops the connection) if it could not all be sent."""

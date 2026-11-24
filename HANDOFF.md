@@ -158,11 +158,14 @@ Blog drafts (claude.ai docs, private to the owner): "Drawing the Airwaves: A Sel
 Image Server" (https://claude.ai/artifact/258poTWumCsSgrF8T1M297) and "From Dispatch Feeds to APRS
 Objects" (https://claude.ai/artifact/CnXmEhpeNqWms87DNDqH8r).
 
-**Not yet on the Pi (as of 2026-11-24):** the single sender (`aprs_send.py`, changed feed scripts,
-`aprs_web.py`, `aprs_ctl.sh`) and the synced `aprs_eink.py` / `aprs_listen.py`. `aprs_ctl.sh` could
-not be run on the Mac used for development (it needs Linux `stat -c` and `/proc`), so the new "send"
-service has only been syntax-checked there; watch `./aprs_ctl.sh status` and `logs send` on the
-first start.
+**Deployed to the Pi on 2026-11-24** (`the Pi on the home network`, `~/aprs-pi`; the previous code and
+data are in `~/aprs-pi-backup-20261124`): the single sender and the synced `aprs_eink.py` /
+`aprs_listen.py`. Found during that deploy: APRS-IS servers close one of two connections that are
+logged in with the same callsign and passcode. The web map's listener used to log in that way, so it
+and the sender kept disconnecting each other; `aprs_web.py` now logs the listener in receive-only
+(`pass -1`). The sender also re-sends a packet at most once after a dropped connection and waits
+longer between reconnects when connections die within a minute. `aprs_ctl.sh` cannot be run on a
+Mac (it needs Linux `stat -c` and `/proc`); test supervisor changes on the Pi.
 
 ## 6. Remaining tasks
 

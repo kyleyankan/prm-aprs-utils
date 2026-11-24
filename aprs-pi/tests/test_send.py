@@ -222,7 +222,7 @@ class OneConnection(unittest.TestCase):
         aprs_send.hand_over("montco", CALL, [obj("FIRE1", comment="worse")], folder=self.outbox)
         self.assertEqual(self.sender.step(), 0)                # no connection: it waits
         self.assertFalse(self.link.up())
-        self.link.retry_at = 0                                 # (normally 5 seconds later)
+        self.link.retry_at = 0                                 # (normally some seconds later)
         self.assertEqual(self.sender.step(), 1)
         self.assertEqual(self.wait_lines(2)[1], f"{CALL}>APRS,TCPIP*:{obj('FIRE1', comment='worse')}")
         self.assertEqual(len(self.server.logins), 2)
@@ -238,6 +238,24 @@ class OneConnection(unittest.TestCase):
         self.assertEqual(len(self.wait_lines(4)), 4)
         aprs_send.hand_over("montco", CALL, [obj("FIRE1"), obj("FIRE2")], folder=self.outbox)
         self.assertEqual(self.sender.step(now + 2), 0)         # and then it is quiet again
+        self.link.drop("test", now + 2)                        # a connection that keeps dropping ...
+        self.link.retry_at = 0
+        self.assertEqual(self.sender.step(now + 3), 0)         # ... does not make it send them a third time
+        self.assertEqual(len(self.server.lines), 4)
+
+    def test_reconnecting_waits_longer_each_time_a_connection_dies_young(self):
+        waits = []
+        for i in range(4):
+            now = 1000.0 + i
+            self.link.retry_at = 0
+            self.assertTrue(self.link.connect(now))
+            self.link.drop("test", now)
+            waits.append(self.link.retry_at - now)
+        self.assertEqual(waits, [10, 20, 40, 80])
+        self.link.retry_at = 0
+        self.link.connect(2000.0)
+        self.link.drop("test", 2100.0)                         # this one lasted: back to a short wait
+        self.assertEqual(self.link.retry_at - 2100.0, 5)
 
     def test_unverified_login_sends_nothing(self):
         self.server.verified = False
