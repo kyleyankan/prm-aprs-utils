@@ -8,7 +8,10 @@ library, started and watched by one shell script.
 - One **sender** (`aprs_send.py`) holds the only sending connection to APRS-IS and decides which
   packets actually go out.
 - One **web service** (`aprs_web.py`) shows a map of the objects, lets you correct or delete them,
-  and draws pictures for displays.
+  lets you choose how important an object must be to be sent, lists packets for radios in the
+  field, and draws pictures for displays.
+- One set of **importance rules** (`aprs_priority.py`) rates every object critical, high, medium
+  or low. The sender, the web map and the radio list all use it.
 - The **supervisor** (`aprs_ctl.sh`) starts, stops and restarts all of them.
 
 ## The whole picture
@@ -63,14 +66,26 @@ flowchart LR
 
     send[aprs_send.py<br>the one sender]
     book[("sender_state.json")]
+    prio[aprs_priority.py<br>importance rules]
+    minlv[("sender_settings.json<br>minimum level")]
     out --> send
     send <--> book
+    prio -.->|rates each object| send
+    prio -.->|rates each object| web
+    web -->|"Send to APRS-IS choice"| minlv
+    minlv --> send
+    book -->|"send times,<br>what is held back"| web
     send ==>|"one login,<br>only what is due"| aprsis((APRS-IS))
     aprsis -.->|receive only| web
+
+    radio[Radios in the field]
+    web -->|"/api/packets:<br>packets near a point"| radio
 ```
 
 Everything to the left of the outbox decides **what should be on the air**. The sender alone
-decides **what needs transmitting right now**.
+decides **what needs transmitting right now**, and it holds back anything rated below the minimum
+level you chose on the web map. Radios do not get packets pushed to them: a program beside each
+radio asks the web service for the packets near it.
 
 ## One poll, step by step
 
@@ -91,7 +106,8 @@ sequenceDiagram
     Feed->>Q: one file with every packet
     Note over Feed: only now update *_live_state.json
     Send->>Q: pick the file up (within a second)
-    Note over Send: for each packet: new, changed,<br>a kill, or last sent 26+ min ago?
+    Note over Send: rate each object: below the minimum level?<br>hold it back, or kill it if it is on the air
+    Note over Send: for the rest: new, changed,<br>a kill, or last sent 26+ min ago?
     Send->>IS: only the packets that are due
     Note over Send: record what was sent and when
 ```
@@ -288,6 +304,28 @@ outbox every second.
 
 ### When a packet is sent
 
+```mermaid
+flowchart TD
+    p[A packet from the outbox] --> k{"Is it a live object?"}
+    k -->|"no: a kill"| kk{"Already killed, or held<br>back and never sent?"}
+    kk -->|no| sendkill[Send the kill, once]
+    kk -->|yes| drop1[Drop it]
+    k -->|"no: a status line"| st{"Sent in the last 26 min?"}
+    st -->|no| sendit[Send it]
+    st -->|yes| drop2[Drop it]
+    k -->|yes| lv{"Rated below the<br>minimum level?"}
+    lv -->|yes| air{"Is it on the air now?"}
+    air -->|yes| takeoff[Send a kill: taken off]
+    air -->|no| hold[Hold it back]
+    lv -->|"no, or not rated"| nw{"New, or back after a kill?"}
+    nw -->|yes| sendit
+    nw -->|no| ch{"Position, symbol<br>or text changed?"}
+    ch -->|yes| sendit
+    ch -->|no| old{"Last sent 26+ min ago?"}
+    old -->|yes| sendit
+    old -->|no| drop2
+```
+
 | The object is... | Sent? |
 |---|---|
 | new, or back after a kill | Yes |
@@ -376,10 +414,12 @@ no connection. This is the safe test mode and the default.
 - **Importance:** each object shows its level and the reasons; the side panel counts each level and
   holds the "Send to APRS-IS" minimum-level choice.
 - **Packets for radios:** `GET /api/packets?lat=&lon=&miles=` lists the object packets last sent to
-  APRS-IS within a distance of a point, recent kills first and then the most important, so a radio
-  in that area can transmit them. `min=high` keeps only objects rated at least that important. With `via=CALL` each comes in third-party form (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which
-  keeps this station as the sender and stops igates passing the packet back to APRS-IS. It reads
-  the sender's `sender_state.json` and transmits nothing itself.
+  APRS-IS within a distance of a point, so a radio in that area can transmit them: recent kills
+  first, then the most important, then the nearest. `min=high` keeps only objects rated at least
+  that important. With `via=CALL` each comes in third-party form
+  (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which keeps this station as the sender and stops igates
+  passing the packet back to APRS-IS. It reads the sender's `sender_state.json` and transmits
+  nothing itself.
 - **Edit and delete:** stored in `overrides.json`, which every feed script applies on its next
   poll, so a correction sticks even though the source still reports the original. The corrected
   packet or the kill is also handed to the sender at once.
@@ -391,6 +431,18 @@ no connection. This is the safe test mode and the default.
 
 `aprs_eink.py` and `aprs_listen.py` are copies. The masters are in `aprs-mapimage/app/`; see
 `aprs-mapimage/tools/sync_shared.py`.
+
+### What the web service answers
+
+| Address | Gives |
+|---|---|
+| `/` | the map and editor page |
+| `GET /api/objects` | every live object with its source, level, score, reasons and send times; counts per level; the minimum level |
+| `GET /api/packets?lat=&lon=&miles=` | packets near a point for a radio to transmit; options `min`, `kills`, `limit`, `since`, `via`, `format=text` |
+| `POST /api/settings` | sets the minimum level for sending: `{"min_level": "medium"}` |
+| `POST /api/edit`, `/api/delete`, `/api/restore`, `/api/create` | corrections and custom objects from the page |
+| `GET /api/aprs` | other people's objects, stations and messages heard nearby |
+| `/eink.png`, `/eink.bmp`, `/map.png`, `/eink-all.png`, `/map-all.png` | pictures for displays |
 
 ## The supervisor: `aprs_ctl.sh`
 

@@ -26,9 +26,12 @@ feeds ──> aprs_<feed>.py (one process each) ──> data/outbox/ ──> apr
 aprs_ctl.sh ─────┘  supervisor: starts/stops/restarts, crash back-off, logs, reads aprs.env before every launch
 aprs_send.py  the only program that logs in to APRS-IS to send (service "send", always enabled).
               Sends an object when it is new, changed or killed, or last sent 26+ minutes ago.
+aprs_priority.py  rates every object critical/high/medium/low; used by the sender, the web map and
+              /api/packets. The minimum level for sending is kept in data/sender_settings.json.
 aprs_web.py   web map/editor on :8080 + /eink.png /map.png pictures (aprs_eink.py) + other people's
               objects via aprs_listen.py; edits/deletes go through aprs_overrides.py and are handed
-              to aprs_send.py
+              to aprs_send.py. Also shows each object's level and send times, sets the minimum
+              level, and serves /api/packets (packets near a point, for radios to transmit).
 aprs_objects.py  stand-alone cleanup: find and kill leftover objects for a callsign (uses aprs.fi)
 ```
 
@@ -56,7 +59,19 @@ kill never is. Packets sent since the server was last heard from are sent again 
 turns out to be dead. A hand-over through files was chosen over a local socket: nothing listens on
 a port, it needs no retry logic in the scripts, and hand-overs survive a restart of either side.
 Still on their own connections: the receive-only listener in `aprs_web.py` (`aprs_listen.py`) and
-the hand-run cleanup tool `aprs_objects.py`. Symbols come
+the hand-run cleanup tool `aprs_objects.py`.
+
+Added the same day, all described in `aprs-pi/ARCHITECTURE.md`:
+- **Send times on the web map**: when each object last went to APRS-IS and when it is sent again.
+- **`/api/packets`**: the packets last sent within a radius of a point, so a program beside a radio
+  can put them on RF. `via=CALL` gives third-party form, chosen so this station stays the sender and
+  igates do not pass the packet back to APRS-IS. No radio-side program exists yet.
+- **Importance** (`aprs_priority.py`): a level from the name tag and the call type at the start of
+  the text, and a score for ordering. Freshness moves only the score, never the level; otherwise an
+  ageing incident would fall below the minimum and be killed. The rules were tuned against the
+  wording in the Pi's logs and are only as good as that wording.
+- **Minimum level for sending**, chosen on the web map. The sender holds back lower-rated objects
+  and kills any that are already on the air. Hand-made objects, kills and status lines always go. Symbols come
 from `SYM_*` settings (`./aprs_ctl.sh symbols`); comments are fitted to `COMMENT_LENGTH` by
 abbreviating first and dropping the least important parts last; approximate geocodes end in `?`.
 
@@ -147,8 +162,9 @@ Both projects are working and deployed by the owner: the feed scripts on the Pi 
 `aprs-pi-1119.zip`, which this folder matches), the map server at https://aprs.phlm.sh/.
 
 ```
-aprs-pi/          aprs_ctl.sh, install-service.sh, README.txt, 6 feed scripts, aprs_send.py, aprs_web.py,
-                  aprs_eink.py, aprs_listen.py, aprs_overrides.py, aprs_objects.py, tests/test_send.py
+aprs-pi/          aprs_ctl.sh, install-service.sh, README.txt, ARCHITECTURE.md, 6 feed scripts,
+                  aprs_send.py, aprs_priority.py, aprs_web.py, aprs_eink.py, aprs_listen.py,
+                  aprs_overrides.py, aprs_objects.py, tests/ (test_send, test_priority, test_web)
 aprs-mapimage/    Dockerfile, docker-compose.yml, .env.example, .dockerignore, README.md,
                   app/ (server.py, aprs_listen.py, aprs_eink.py, tiles.py, world.py, world.json.gz),
                   tools/build_world.py, tools/sync_shared.py, tests/
@@ -166,6 +182,9 @@ and the sender kept disconnecting each other; `aprs_web.py` now logs the listene
 (`pass -1`). The sender also re-sends a packet at most once after a dropped connection and waits
 longer between reconnects when connections die within a minute. `aprs_ctl.sh` cannot be run on a
 Mac (it needs Linux `stat -c` and `/proc`); test supervisor changes on the Pi.
+Later the same day the send times, `/api/packets`, the importance ratings and the minimum level
+were deployed too. The minimum was left at "everything"; raising it has only been tried in tests.
+With the traffic of that day, "medium and above" would kill about 160 roadwork objects at once.
 
 ## 6. Remaining tasks
 
@@ -186,16 +205,20 @@ Mac (it needs Linux `stat -c` and `/proc`); test supervisor changes on the Pi.
    on colour). `aprs_heard.json` loads in both directions, so the old files can be put back.
    **Not yet copied to the Pi.**
 4. **Turn `aprs-mapimage/tests/` into a real test suite** (pytest or unittest, ports chosen
-   automatically, no fixed sandbox paths). aprs-pi has `tests/test_send.py` (unittest, fake APRS-IS
-   on localhost) for the sender only; the feed scripts have none. Known harness problems:
+   automatically, no fixed sandbox paths). aprs-pi has unittest files for the sender, the importance
+   rules and the web API (`tests/`, fake APRS-IS on localhost); the feed scripts have none. Known harness problems:
    `follow/run.py` and `history/run.py` exit 0 even when an assertion fails (read the log for
    `PHASE OK`); `signin`, `coast`, `marsh` and `world` contain no assertions; `test_server.py` needs
    Pillow, which is not in the standard library; `test_signin.py` writes to `/tmp/auth*`; server
    start-up can stall on a slow reverse-DNS lookup of the machine's address.
-5. Offered but not built: colour the owner's own objects by feed in the map server (recognise
+5. **Radio side of `/api/packets`**: nothing yet polls it and keys a transmitter. It needs a small
+   program beside each radio that asks for packets near it (with `via=` its own callsign, a small
+   radius and `min=`), sends kills first, and paces what it sends for a 1200 baud channel.
+6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
+   flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
+7. Offered but not built: colour the owner's own objects by feed in the map server (recognise
    K3YLE-15 objects and their name tags) and draw NWS warning outlines there (parse multiline objects).
-6. Optional: put this repository on GitHub (create a private repo and push; never commit `aprs.env`
-   or `.env`).
+8. Done: the repository is on GitHub (`origin`, branch `main`). Never commit `aprs.env` or `.env`.
 
 ## 7. Open questions
 
