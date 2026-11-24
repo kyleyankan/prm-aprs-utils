@@ -15,4 +15,5 @@ Run each from its own folder; they write pictures and `data/` folders beside the
 | `history/` | `python3 seed.py`, `python3 feed.py 9640 first &`, `python3 run.py 9640 first` (then `second`) | live / history / aprs.fi lookups, caching, old-position pictures |
 | `water/` | `python3 coast.py`, `python3 marsh.py`, `mkdir tdata && python3 tiles_water.py` | sea, bay, lake and river fill; water layer download and upgrade |
 | `world/` | `mkdir data && python3 views.py` | Natural Earth layer at several scales and places |
+| `shared/` | `python3 -m unittest test_shared_copies` | the `aprs-pi/` copies of `aprs_eink.py` and `aprs_listen.py` are identical to the masters in `app/` |
 | `ui/` | start a server, then `node builder_ui.js` / `node follow_ui.js` (Playwright; ports in the files) | builder page in headless Chromium with a stand-in for Leaflet |

@@ -19,7 +19,7 @@ srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),H); srv.daemon_threads=True;
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 D=os.path.abspath("data")
 env=dict(os.environ,DATA_DIR=D,APRS_HOME="40.12,-75.34",LISTEN_MILES="40",APRS_IS_HOST="127.0.0.1",APRS_IS_PORT=str(port),
-         APRS_BACKFILL="0",EINK_OSM="0",EINK_SYMBOLS="0",PORT="8777",TZ="America/New_York")
+         APRS_BACKFILL="0",EINK_OSM="0",EINK_COUNTIES="0",EINK_SYMBOLS="0",PORT="8777",TZ="America/New_York")
 def start(): return subprocess.Popen([sys.executable,os.path.join(APP, "server.py")],env=env,stderr=subprocess.PIPE,text=True,cwd="/tmp")
 B="http://127.0.0.1:8777"
 def get(u):

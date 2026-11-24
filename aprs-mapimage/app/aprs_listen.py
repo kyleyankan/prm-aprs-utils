@@ -21,6 +21,9 @@ but servers running javAPRSSrvr offer a "full feed with history" port (10151) th
 first sends the last position of every station heard in about the last 30 minutes.
 backfill() reads that port briefly, keeps what lies inside the listening radius and
 disconnects.  It is best-effort: if no server offers the port, nothing is lost.
+
+Shared file: the master copy is aprs-mapimage/app/aprs_listen.py.  The copy in aprs-pi/
+is made from it by aprs-mapimage/tools/sync_shared.py; edit the master, then run that.
 """
 import math
 import re
@@ -330,12 +333,10 @@ class Listener:
             sock = socket.create_connection((host, port), timeout=15)
             f = sock.makefile("rb")
             f.readline()
-            sock.sendall(f"user {self.callsign} pass -1 vers aprs-web-listen 1.0\r\n".encode())
+            sock.sendall(f"user {self.callsign} pass -1 vers {self.vers}\r\n".encode())
             sock.settimeout(10)
             end = time.time() + seconds
             follow = {c for c, _ in self.follow}
-            klat = 69.0
-            klon = 69.172 * math.cos(math.radians(self.lat))
             while time.time() < end and seen < max_lines:
                 raw = f.readline()
                 if not raw:
@@ -421,6 +422,7 @@ class Listener:
                 self.sock = sock
                 f = sock.makefile("rb")
                 f.readline()
+                self.refilter = False                    # this login already carries the current areas
                 flt = self.filter_string()
                 sock.sendall(f"user {self.callsign} pass {self.login_pass} vers {self.vers} filter {flt}\r\n".encode())
                 sock.settimeout(120)                     # the server sends a keep-alive line every ~20 s

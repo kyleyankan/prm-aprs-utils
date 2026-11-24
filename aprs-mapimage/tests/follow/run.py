@@ -84,6 +84,8 @@ def test():
             assert CALLS["overpass"] == 0, "tiles should come from disk"
             j = js("/api/follow?call=K3XYZ-9"); print("remembered:", j); assert j["found"]
             print("login filter:", LOGINS[-1] if LOGINS else None)
+        if phase == "first":
+            wait_idle()                               # let queued tiles finish: phase "second" must find them all on disk
         print("PHASE OK", phase)
     except BaseException as e:
         import traceback; traceback.print_exc()

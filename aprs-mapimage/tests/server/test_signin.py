@@ -3,7 +3,7 @@ APP = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "a
 import subprocess, sys, os, time, urllib.request, urllib.error, base64, json
 def run(extra):
     d=f"/tmp/auth{abs(hash(str(extra)))}"; subprocess.run(["rm","-rf",d])
-    env=dict(os.environ,DATA_DIR=d,APRS_HOME="40.12,-75.34",APRS_IS_HOST="127.0.0.1",APRS_IS_PORT="1",APRS_BACKFILL="0",EINK_OSM="0",EINK_SYMBOLS="0",PORT="8779",**extra)
+    env=dict(os.environ,DATA_DIR=d,APRS_HOME="40.12,-75.34",APRS_IS_HOST="127.0.0.1",APRS_IS_PORT="1",APRS_BACKFILL="0",EINK_OSM="0",EINK_COUNTIES="0",EINK_SYMBOLS="0",PORT="8779",**extra)
     return subprocess.Popen([sys.executable,os.path.join(APP, "server.py")],env=env,stderr=subprocess.PIPE,text=True)
 def code(path,auth=None,method="GET",body=None):
     h={"Content-Type":"application/json"}

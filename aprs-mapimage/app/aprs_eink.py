@@ -38,6 +38,8 @@ Query options (all optional):
   weight      1 = thin lines (default), 2 = bold motorways and rivers
   labels      0 = no road numbers                    (default 1)
   towns       0 = no town names                      (default 1)
+  water       0 = do not fill the sea, bays, lakes and wide rivers (default 1; needs detail=2)
+  title       text for the title bar, plain ASCII, cut to fit (default APRS)
   rotate      0, 90, 180 or 270 degrees clockwise    (default 0)
   invert      1 = white on black                     (default 0)
   gray        1 = 8-bit grayscale PNG instead of 1-bit, for decoders that need it
@@ -50,6 +52,9 @@ Query options (all optional):
   symbols     1/0 = draw APRS symbols instead of plain shapes (default 1 colour, 0 black-and-white)
   zoom        2-4 = draw everything that many times larger (bigger text on big screens)
   dark        1 = dark background                    (colour picture only)
+
+Shared file: the master copy is aprs-mapimage/app/aprs_eink.py.  The copy in aprs-pi/
+is made from it by aprs-mapimage/tools/sync_shared.py; edit the master, then run that.
 """
 import array
 import json

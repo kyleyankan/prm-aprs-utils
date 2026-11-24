@@ -21,6 +21,9 @@ but servers running javAPRSSrvr offer a "full feed with history" port (10151) th
 first sends the last position of every station heard in about the last 30 minutes.
 backfill() reads that port briefly, keeps what lies inside the listening radius and
 disconnects.  It is best-effort: if no server offers the port, nothing is lost.
+
+Shared file: the master copy is aprs-mapimage/app/aprs_listen.py.  The copy in aprs-pi/
+is made from it by aprs-mapimage/tools/sync_shared.py; edit the master, then run that.
 """
 import math
 import re
@@ -227,6 +230,53 @@ class Listener:
         self.trails = Trails(trail_minutes)
         self.connected, self.since, self.packets, self.error = False, 0.0, 0, ""
         self.messages = []                               # newest last: {time, src, to, text, count}
+        self.extra_areas = []                            # more (lat, lon, miles) circles to listen to
+        self.follow = []                                 # (CALL, miles): that station, and everything near it
+        self.sock, self.vers, self.refilter = None, "aprs-web-listen 1.0", False
+
+    def areas(self):
+        return [(self.lat, self.lon, self.radius)] + list(self.extra_areas)
+
+    def set_extra_areas(self, areas):
+        """Listen to these circles too; reconnects (with the new filter) if they changed."""
+        areas = sorted({(round(a, 3), round(b, 3), round(max(1.0, r), 1)) for a, b, r in areas})
+        if areas == sorted(self.extra_areas):
+            return
+        self.extra_areas = areas
+        self.reconnect()
+
+    def set_follow(self, follow):
+        """Listen for these stations wherever they are, and for everything within `miles` of each."""
+        follow = sorted({(str(c).upper(), round(max(1.0, m))) for c, m in follow})
+        if follow == self.follow:
+            return
+        self.follow = follow
+        self.reconnect()
+
+    def reconnect(self):
+        self.refilter = True
+        sock = self.sock
+        if sock:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)          # the listener reconnects at once with the new filter
+            except OSError:
+                pass
+
+    def in_area(self, lat, lon):
+        for a, b, r in self.areas():
+            if math.hypot((lat - a) * 69.0, (lon - b) * 69.172 * math.cos(math.radians(a))) <= r:
+                return True
+        return False
+
+    def filter_string(self):
+        parts = [f"r/{a:.4f}/{b:.4f}/{max(1, round(r * 1.609344))}" for a, b, r in self.areas()]
+        if self.follow:              # b/ the station, o/ an object or item by name, f/ everything around a station
+            calls = [(c, m) for c, m in self.follow if re.fullmatch(r"[A-Z0-9]{1,7}(-[A-Z0-9]{1,2})?", c)]
+            if calls:
+                parts.append("b/" + "/".join(c for c, _ in calls))
+                parts += [f"f/{c}/{max(1, round(m * 1.609344))}" for c, m in calls]
+            parts.append("o/" + "/".join(c for c, _ in self.follow))
+        return " ".join(parts)
 
     def start(self):
         threading.Thread(target=self.run, daemon=True).start()
@@ -283,11 +333,10 @@ class Listener:
             sock = socket.create_connection((host, port), timeout=15)
             f = sock.makefile("rb")
             f.readline()
-            sock.sendall(f"user {self.callsign} pass -1 vers aprs-web-listen 1.0\r\n".encode())
+            sock.sendall(f"user {self.callsign} pass -1 vers {self.vers}\r\n".encode())
             sock.settimeout(10)
             end = time.time() + seconds
-            klat = 69.0
-            klon = 69.172 * math.cos(math.radians(self.lat))
+            follow = {c for c, _ in self.follow}
             while time.time() < end and seen < max_lines:
                 raw = f.readline()
                 if not raw:
@@ -298,7 +347,7 @@ class Listener:
                 seen += 1
                 try:
                     rec = parse_line(line)
-                    if rec and math.hypot((rec["lat"] - self.lat) * klat, (rec["lon"] - self.lon) * klon) <= self.radius:
+                    if rec and (self.in_area(rec["lat"], rec["lon"]) or rec["name"].upper() in follow):
                         key = (rec["kind"], rec["name"])
                         with self.lock:
                             fresh = key not in self.heard
@@ -361,7 +410,7 @@ class Listener:
             n_obj = sum(1 for r in self.heard.values() if r["kind"] != "station")
             n_all = len(self.heard)
         return {"connected": self.connected, "since": self.since, "radius_miles": self.radius,
-                "centre": [self.lat, self.lon], "objects_heard": n_obj, "stations_heard": n_all - n_obj,
+                "centre": [self.lat, self.lon], "areas": [list(a) for a in self.areas()], "objects_heard": n_obj, "stations_heard": n_all - n_obj,
                 "max_age_minutes": round(self.max_age / 60), "error": self.error}
 
     def run(self):
@@ -370,13 +419,16 @@ class Listener:
             sock = None
             try:
                 sock = socket.create_connection((self.host, self.port), timeout=30)
+                self.sock = sock
                 f = sock.makefile("rb")
                 f.readline()
-                flt = f"r/{self.lat:.4f}/{self.lon:.4f}/{max(1, round(self.radius * 1.609344))}"
-                sock.sendall(f"user {self.callsign} pass {self.login_pass} vers aprs-web-listen 1.0 filter {flt}\r\n".encode())
+                self.refilter = False                    # this login already carries the current areas
+                flt = self.filter_string()
+                sock.sendall(f"user {self.callsign} pass {self.login_pass} vers {self.vers} filter {flt}\r\n".encode())
                 sock.settimeout(120)                     # the server sends a keep-alive line every ~20 s
                 self.connected, self.since, self.error, delay = True, time.time(), "", 15
-                print(f"# listening on APRS-IS within {self.radius:g} miles of {self.lat:.3f},{self.lon:.3f}",
+                more = f" (+{len(self.extra_areas)} more area(s))" if self.extra_areas else ""
+                print(f"# listening on APRS-IS within {self.radius:g} miles of {self.lat:.3f},{self.lon:.3f}{more}",
                       file=sys.stderr, flush=True)
                 while True:
                     raw = f.readline()
@@ -389,11 +441,21 @@ class Listener:
                         except Exception:
                             pass                         # one odd packet must not stop the listener
             except Exception as e:
+                if self.refilter:                        # we closed it ourselves to change the filter
+                    self.refilter, self.connected, self.sock = False, False, None
+                    print("# APRS-IS listener: listening area changed; reconnecting", file=sys.stderr, flush=True)
+                    if sock:
+                        try:
+                            sock.close()
+                        except OSError:
+                            pass
+                    time.sleep(1)
+                    continue
                 self.error = str(e)
                 if self.connected or delay == 15:
                     print(f"# APRS-IS listener: {e}; reconnecting in {delay}s", file=sys.stderr, flush=True)
             finally:
-                self.connected = False
+                self.connected, self.sock = False, None
                 if sock:
                     try:
                         sock.close()

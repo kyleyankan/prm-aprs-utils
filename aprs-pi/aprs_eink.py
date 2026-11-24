@@ -38,6 +38,8 @@ Query options (all optional):
   weight      1 = thin lines (default), 2 = bold motorways and rivers
   labels      0 = no road numbers                    (default 1)
   towns       0 = no town names                      (default 1)
+  water       0 = do not fill the sea, bays, lakes and wide rivers (default 1; needs detail=2)
+  title       text for the title bar, plain ASCII, cut to fit (default APRS)
   rotate      0, 90, 180 or 270 degrees clockwise    (default 0)
   invert      1 = white on black                     (default 0)
   gray        1 = 8-bit grayscale PNG instead of 1-bit, for decoders that need it
@@ -50,8 +52,13 @@ Query options (all optional):
   symbols     1/0 = draw APRS symbols instead of plain shapes (default 1 colour, 0 black-and-white)
   zoom        2-4 = draw everything that many times larger (bigger text on big screens)
   dark        1 = dark background                    (colour picture only)
+
+Shared file: the master copy is aprs-mapimage/app/aprs_eink.py.  The copy in aprs-pi/
+is made from it by aprs-mapimage/tools/sync_shared.py; edit the master, then run that.
 """
+import array
 import json
+import unicodedata
 import math
 import os
 import re
@@ -88,15 +95,18 @@ CW, CH = 6, 9          # character cell (5x7 glyph plus spacing)
 # Colour picture: palette index -> RGB.  0 is the background and 1 the text colour, exactly as in
 # the black-and-white picture, so the same drawing code serves both.
 ROLES = ["bg", "ink", "county", "river", "m", "t", "p", "bar", "home", "red", "yellow", "blue", "green",
-         "montco", "chesco", "bucks", "njta", "nj511", "pa511", "nws", "nhc", "custom", "aprs", "other", "bartext", "town"]
+         "montco", "chesco", "bucks", "njta", "nj511", "pa511", "nws", "nhc", "custom", "aprs", "other", "bartext", "town",
+         "water", "sea", "shore", "border", "state"]
 LIGHT = {"bg": "f7f7f4", "ink": "1c2330", "county": "b9bec6", "river": "4c9be8", "m": "e8590c", "t": "b08968",
          "p": "c9ced6", "bar": "1c2330", "home": "e03131", "red": "e03131", "yellow": "e8a100", "blue": "1c7ed6",
          "green": "2f9e44", "montco": "d9480f", "chesco": "7b2cbf", "bucks": "b8860b", "njta": "0b7285", "nj511": "0b7285",
          "pa511": "1f5fd0", "nws": "c0362c", "nhc": "a61e8a", "custom": "2b8a3e", "aprs": "868e96",
-         "other": "495057", "bartext": "ffffff", "town": "3b4452"}
+         "other": "495057", "bartext": "ffffff", "town": "3b4452",
+         "water": "d3e7f8", "sea": "b3d4f1", "shore": "86b6e2", "border": "7a4f9a", "state": "a48fbf"}
 DARK = dict(LIGHT, bg="12161c", ink="e6e9ee", county="3a4350", river="3d8bdb", p="56606e", bar="0a0d11",
             pa511="5b9bff", njta="22b8cf", nj511="22b8cf", chesco="b197fc", other="adb5bd", town="c3cad3", nws="ff6b6b",
-            montco="ff922b", bucks="e0b03a", nhc="e599f7", custom="51cf66")
+            montco="ff922b", bucks="e0b03a", nhc="e599f7", custom="51cf66",
+            water="16304a", sea="0f2740", shore="2c5f8e", border="c39be0", state="7d6b99")
 COLOUR_INK = {r: i for i, r in enumerate(ROLES)}
 
 
@@ -624,9 +634,334 @@ def path_miles(pts):
                for (a0, b0), (a1, b1) in zip(pts, pts[1:]))
 
 
+# --------------------------------------------------------------------------
+# Water: lakes, wide rivers and bays (outlines from OpenStreetMap) and the sea
+# --------------------------------------------------------------------------
+# Black-and-white pictures have no shades, so water is a light dot pattern (sea a little denser).
+WATER_DOTS = {"water": lambda x, y: x % 4 == 0 and y % 4 == 0,
+              "sea": lambda x, y: y % 2 == 0 and (x + (y // 2 % 2) * 2) % 4 == 0}
+
+
+def draw_water(c, layers, xy, opt):
+    """Fill water before anything else is drawn.  layers["areas"]: [{k: w|s|c, lines: [[[lat, lon], ...]]}]
+    k = w: lake, reservoir or wide river; s: bay; c: coastline (the sea is on its right-hand side)."""
+    areas = layers.get("areas") or []
+    world_sea = layers.get("sea")
+    if not areas and not world_sea:
+        return
+    ink = opt.get("ink") or {}
+    colour = bool(ink)
+    cx0, cy0, cx1, cy1 = c.clip
+    w = c.w
+    rows = {}
+
+    def pattern(role, y):
+        k = (role, y % 4)
+        if k not in rows:
+            if colour:
+                rows[k] = bytes([ink[role]]) * w
+            else:
+                f = WATER_DOTS[role]
+                rows[k] = bytes(1 if f(x, y) else 0 for x in range(w))
+        return rows[k]
+
+    def run(role, y, a, b):                              # paint pixels a..b (inclusive) of row y
+        a, b = max(a, cx0), min(b, cx1 - 1)
+        if a <= b and cy0 <= y < cy1:
+            c.px[y * w + a:y * w + b + 1] = pattern(role, y)[a:b + 1]
+
+    shapes = {"c": [], "w": [], "s": []}
+    for ar in areas:
+        lines = [[xy(a, b) for a, b in ln] for ln in ar.get("lines") or [] if len(ln) >= 2]
+        if not lines:
+            continue
+        xs = [p[0] for ln in lines for p in ln]
+        ys = [p[1] for ln in lines for p in ln]
+        if ar.get("k") != "c" and (max(xs) - min(xs) < 3 or max(ys) - min(ys) < 3):
+            continue                                     # smaller than a few pixels: leave it out
+        if max(xs) < cx0 - 40 or min(xs) > cx1 + 40 or max(ys) < cy0 - 40 or min(ys) > cy1 + 40:
+            continue
+        shapes.get(ar.get("k"), shapes["w"]).append(lines)
+
+    coasts = [ln for lines in shapes["c"] for ln in lines]
+    mask, mw = None, cx1 - cx0
+    world_coast = []
+    if coasts:
+        mask = sea_mask(coasts, c.clip)
+    elif world_sea:                                      # no detailed coastline here: Natural Earth's land outlines
+        world_coast = [[xy(a, b) for a, b in ln] for ln in world_sea.get("coast") or [] if len(ln) >= 2]
+        mask = land_test_mask(world_coast, c.clip, xy, world_sea["is_land"])
+    if mask is not None:
+        for y in range(cy0, cy1):
+            row = bytes(mask[(y - cy0) * mw:(y - cy0 + 1) * mw])
+            for m in re.finditer(b"\x01+", row):
+                run("sea", y, cx0 + m.start(), cx0 + m.end() - 1)
+
+    def bay_run(y, a, b):                                # a bay outline often includes its marsh islands:
+        if mask is None or not cy0 <= y < cy1:           # never paint where the coastline says land
+            return run("sea", y, a, b)
+        a, b = max(a, cx0), min(b, cx1 - 1)
+        row = bytes(mask[(y - cy0) * mw + a - cx0:(y - cy0) * mw + b - cx0 + 1])
+        for m in re.finditer(b"[\x00\x01]+", row):
+            run("sea", y, a + m.start(), a + m.end() - 1)
+    for lines in shapes["s"]:
+        fill_even_odd(lines, cy0, cy1, bay_run)
+    for lines in shapes["w"]:
+        fill_even_odd(lines, cy0, cy1, lambda y, a, b: run("water", y, a, b))
+    if colour:                                           # a thin shoreline keeps the edges crisp
+        for lines in shapes["w"] + shapes["s"] + shapes["c"] + [world_coast]:
+            for ln in lines:
+                for (ax, ay), (bx, by) in zip(ln, ln[1:]):
+                    c.line(ax, ay, bx, by, ink["shore"])
+
+
+def land_test_mask(coasts, clip, xy, is_land, margin=8, spacing=16):
+    """Like sea_mask, for Natural Earth's coastline (whose direction is not reliable): coastlines are
+    walls, and each area between them is sea or land by testing sample points against the land outlines.
+    Areas too small to hold a sample (small islands, narrow inlets) are left as land."""
+    cx0, cy0, cx1, cy1 = clip
+    gx0, gy0 = cx0 - margin, cy0 - margin
+    gw, gh = cx1 - cx0 + 2 * margin, cy1 - cy0 + 2 * margin
+    ox, oy = xy(0.0, 0.0)
+    px1, py1 = xy(1.0, 1.0)
+    ax, ay = px1 - ox, py1 - oy                          # pixels per degree of longitude / latitude (negative)
+    wall = bytearray(gw * gh)
+    for ln in coasts:
+        for (ax0, ay0), (bx0, by0) in zip(ln, ln[1:]):
+            seg = clip_segment(ax0 - gx0, ay0 - gy0, bx0 - gx0, by0 - gy0, 0, 0, gw - 2, gh - 2)
+            if not seg:
+                continue
+            x0, y0, x1, y1 = (int(round(v)) for v in seg)
+            dx, dy = abs(x1 - x0), -abs(y1 - y0)
+            sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+            err = dx + dy
+            while True:
+                i = y0 * gw + x0
+                wall[i] = wall[i + 1] = wall[i + gw] = 1
+                if x0 == x1 and y0 == y1:
+                    break
+                e2 = 2 * err
+                if e2 >= dy:
+                    err += dy; x0 += sx
+                if e2 <= dx:
+                    err += dx; y0 += sy
+    label = array.array("i", bytes(4 * gw * gh))
+
+    def flood(x, y, n):
+        stack = [(x, y)]
+        while stack:
+            x, y = stack.pop()
+            i = y * gw + x
+            if wall[i] or label[i]:
+                continue
+            a = x
+            while a > 0 and not wall[i - (x - a) - 1] and not label[i - (x - a) - 1]:
+                a -= 1
+            b = x
+            while b < gw - 1 and not wall[i + (b - x) + 1] and not label[i + (b - x) + 1]:
+                b += 1
+            base = y * gw
+            for xx in range(a, b + 1):
+                label[base + xx] = n
+            for ny in (y - 1, y + 1):
+                if 0 <= ny < gh:
+                    nb, open_ = ny * gw, False
+                    for xx in range(a, b + 1):
+                        free = not wall[nb + xx] and not label[nb + xx]
+                        if free and not open_:
+                            stack.append((xx, ny))
+                        open_ = free
+
+    votes, nxt = {}, 1
+    for y in range(margin + spacing // 2, gh - margin, spacing):
+        for x in range(margin + spacing // 2, gw - margin, spacing):
+            i = y * gw + x
+            if wall[i]:
+                continue
+            n = label[i]
+            if not n:
+                n, nxt = nxt, nxt + 1
+                flood(x, y, n)
+            v = votes.setdefault(n, [0, 0])
+            if v[0] + v[1] >= 7:                         # this area is decided
+                continue
+            lon, lat = (x + gx0 - ox) / ax, (y + gy0 - oy) / ay
+            v[1 if is_land(lat, lon) else 0] += 1
+    sea = {n for n, (s_, l_) in votes.items() if s_ > l_}
+    land = {n for n, (s_, l_) in votes.items() if l_ >= s_}
+    mw = cx1 - cx0
+    mask = bytearray(mw * (cy1 - cy0))
+    if not sea:
+        return mask
+    for y in range(cy1 - cy0):
+        g = (y + margin) * gw + margin
+        r = y * mw
+        for x in range(mw):
+            i = g + x
+            n = label[i]
+            if n in sea or (wall[i] and (label[i - 1] in sea or label[i + 1] in sea
+                                         or label[i - gw] in sea or label[i + gw] in sea)):
+                mask[r + x] = 1
+            elif n in land:
+                mask[r + x] = 2
+    return mask
+
+
+def fill_even_odd(lines, ymin, ymax, paint):
+    """Even-odd scanline fill.  `lines` are polylines that together close into rings (an OpenStreetMap
+    multipolygon's member ways need not be joined first).  paint(y, x_first, x_last) for each run."""
+    rows = {}
+    for ln in lines:
+        for (ax, ay), (bx, by) in zip(ln, ln[1:]):
+            if ay == by:
+                continue
+            if ay > by:
+                ax, ay, bx, by = bx, by, ax, ay
+            y0, y1 = max(math.ceil(ay - 0.5), ymin), min(math.ceil(by - 0.5) - 1, ymax - 1)
+            if y0 > y1:
+                continue
+            k = (bx - ax) / (by - ay)
+            for y in range(y0, y1 + 1):
+                rows.setdefault(y, []).append(ax + (y + 0.5 - ay) * k)
+    for y, xs in rows.items():
+        xs.sort()
+        for i in range(0, len(xs) - 1, 2):
+            a, b = math.ceil(xs[i] - 0.5), math.ceil(xs[i + 1] - 0.5) - 1
+            if a <= b:
+                paint(y, a, b)
+
+
+def sea_mask(coasts, clip, margin=32):
+    """For each pixel of the clip box: 1 sea, 2 land, 0 not known (no coastline beside it).  Coastlines are drawn as walls; every region they
+    make is flooded and votes on itself from points just right (sea) and left (land) of the coastline
+    beside it.  Works a little outside the box so coastline just off the picture still counts."""
+    cx0, cy0, cx1, cy1 = clip
+    gx0, gy0 = cx0 - margin, cy0 - margin
+    gw, gh = cx1 - cx0 + 2 * margin, cy1 - cy0 + 2 * margin
+    wall = bytearray(gw * gh)
+    segs = []
+    for ln in coasts:
+        for (ax, ay), (bx, by) in zip(ln, ln[1:]):
+            ax, ay, bx, by = ax - gx0, ay - gy0, bx - gx0, by - gy0
+            seg = clip_segment(ax, ay, bx, by, 0, 0, gw - 2, gh - 2)
+            if not seg:
+                continue
+            segs.append((ax, ay, bx, by))
+            x0, y0, x1, y1 = (int(round(v)) for v in seg)
+            dx, dy = abs(x1 - x0), -abs(y1 - y0)
+            sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
+            err = dx + dy
+            while True:                                  # 2-pixel wall: no diagonal leaks
+                i = y0 * gw + x0
+                wall[i] = wall[i + 1] = wall[i + gw] = 1
+                if x0 == x1 and y0 == y1:
+                    break
+                e2 = 2 * err
+                if e2 >= dy:
+                    err += dy; x0 += sx
+                if e2 <= dx:
+                    err += dx; y0 += sy
+    mask = bytearray((cx1 - cx0) * (cy1 - cy0))
+    if not segs:
+        return mask
+    label = array.array("i", bytes(4 * gw * gh))
+    votes, nxt = {}, 1
+
+    def flood(x, y, n):
+        stack = [(x, y)]
+        while stack:
+            x, y = stack.pop()
+            i = y * gw + x
+            if wall[i] or label[i]:
+                continue
+            a = x
+            while a > 0 and not wall[i - (x - a) - 1] and not label[i - (x - a) - 1]:
+                a -= 1
+            b = x
+            while b < gw - 1 and not wall[i + (b - x) + 1] and not label[i + (b - x) + 1]:
+                b += 1
+            base = y * gw
+            for xx in range(a, b + 1):
+                label[base + xx] = n
+            for ny in (y - 1, y + 1):
+                if 0 <= ny < gh:
+                    nb, open_ = ny * gw, False
+                    for xx in range(a, b + 1):
+                        free = not wall[nb + xx] and not label[nb + xx]
+                        if free and not open_:
+                            stack.append((xx, ny))
+                        open_ = free
+
+    for ax, ay, bx, by in segs:
+        dx, dy = bx - ax, by - ay
+        ln = math.hypot(dx, dy)
+        if ln < 2:
+            continue
+        mx, my, nx, ny = (ax + bx) / 2, (ay + by) / 2, -dy / ln, dx / ln     # (nx, ny): to the right
+        sides = []
+        for side in (1, -1):
+            n = 0
+            for off in (2.5, 3.5, 5):
+                x, y = int(round(mx + side * off * nx)), int(round(my + side * off * ny))
+                if not (0 <= x < gw and 0 <= y < gh) or wall[y * gw + x]:
+                    continue
+                n = label[y * gw + x]
+                if not n and nxt <= 200000:
+                    n, nxt = nxt, nxt + 1
+                    flood(x, y, n)
+                break
+            sides.append(n)
+        # only a coastline piece with different areas on its two sides votes: next to a tiny island
+        # (narrower than the offset) or a gap in the coastline, both points land in the same area
+        if sides[0] and sides[1] and sides[0] != sides[1]:
+            votes.setdefault(sides[0], [0, 0])[0] += 1
+            votes.setdefault(sides[1], [0, 0])[1] += 1
+    # A coastline that just stops inside the picture (not joined to the next piece) means part of it is
+    # missing: tiles not downloaded yet, or the data ends.  Land and sea leak into each other there, so
+    # the area around a loose end is never filled.
+    ends = {}
+    for ln in coasts:
+        for p in (ln[0], ln[-1]):
+            k = (round(p[0], 2), round(p[1], 2))
+            ends[k] = ends.get(k, 0) + 1
+    leaky = set()
+    for (ex, ey), count in ends.items():
+        x, y = int(round(ex - gx0)), int(round(ey - gy0))
+        if count == 1 and 3 <= x < gw - 3 and 3 <= y < gh - 3:
+            for yy in range(y - 3, y + 4):
+                for xx in range(x - 3, x + 4):
+                    if label[yy * gw + xx]:
+                        leaky.add(label[yy * gw + xx])
+    sea = {n for n, (yes, no) in votes.items() if yes > 0 and no * 4 <= yes and n not in leaky}
+    land = {n for n, (yes, no) in votes.items() if no > 0 and yes * 4 <= no and n not in leaky}
+    if not sea and not land:
+        return mask
+    mw = cx1 - cx0
+    for y in range(cy1 - cy0):
+        g = (y + margin) * gw + margin
+        r = y * mw
+        for x in range(mw):
+            i = g + x
+            n = label[i]
+            if n in sea or (wall[i] and (label[i - 1] in sea or label[i + 1] in sea
+                                         or label[i - gw] in sea or label[i + gw] in sea)):
+                mask[r + x] = 1
+            elif n in land:
+                mask[r + x] = 2
+    return mask
+
+
+def plain(text):
+    """ASCII for the built-in font: accents dropped (Québec -> Quebec), anything else left out."""
+    text = unicodedata.normalize("NFKD", str(text))
+    return "".join(ch for ch in text if not unicodedata.combining(ch)).encode("ascii", "ignore").decode().strip()
+
+
 def draw_base(c, layers, xy, inside, ppm, detail, home=None, opt=None):
     """County outlines, rivers, highways, road numbers and town names."""
     osm = (layers.get("osm") or {}) if detail >= 2 else {}
+    if detail >= 2 and (opt or {}).get("water", 1):
+        draw_water(c, layers, xy, opt or {})
     opt = opt or {}
     road_level, river_level, bold = opt.get("roads", 2), opt.get("rivers", 1), opt.get("weight", 1) >= 2
     ink = opt.get("ink") or {}
@@ -635,7 +970,7 @@ def draw_base(c, layers, xy, inside, ppm, detail, home=None, opt=None):
     def I(role):
         return ink.get(role, 1)
     county_names = []
-    for county in layers.get("counties") or []:
+    for county in (layers.get("counties") or []) if ppm >= 0.6 else []:   # too small to see on wide views
         best = None
         for ring in county.get("rings", []):
             pts = [xy(a, b) for a, b in ring]
@@ -646,6 +981,18 @@ def draw_base(c, layers, xy, inside, ppm, detail, home=None, opt=None):
         if best:
             cx, cy = xy(sum(p[0] for p in best) / len(best), sum(p[1] for p in best) / len(best))
             county_names.append((cx, cy, county.get("name", "")))
+
+    for level in (1, 0):                                 # state/province borders, then country borders on top
+        role = "state" if level else "border"
+        for bd in layers.get("borders") or []:
+            if bd.get("k") != level:
+                continue
+            p = [xy(a, b) for a, b in bd["pts"]]
+            for (x0, y0), (x1, y1) in zip(p, p[1:]):
+                if colour:
+                    c.line(x0, y0, x1, y1, I(role), width=(3 if bold else 2) if level == 0 else (2 if bold else 1))
+                else:
+                    c.line(x0, y0, x1, y1, width=2 if level == 0 else 1, dash=(6, 3))
 
     rivers = [w for w in osm.get("water") or [] if isinstance(w, dict)] if river_level else []
     if river_level == 1:                                 # major rivers: enough named length inside the map
@@ -699,7 +1046,9 @@ def draw_base(c, layers, xy, inside, ppm, detail, home=None, opt=None):
     places = sorted((osm.get("places") or []) if opt.get("towns", 1) else [], key=lambda q: (q.get("k") != "city", -q.get("pop", 0)))
     for pl in places[:60]:
         x, y = (int(round(v)) for v in xy(pl["lat"], pl["lon"]))
-        name = pl["name"].upper().encode("ascii", "replace").decode()[:18]
+        name = plain(pl["name"]).upper()[:18]
+        if not name:
+            continue
         tw = len(name) * CW
         for bx in (x + 4, x - 4 - tw):                    # name to the right of the dot, else to the left
             box = (bx - 1, y - 4, bx + tw, y + 5)
@@ -900,7 +1249,8 @@ def render(objects, params, basemap=None, now=None, colour=False, symbols=None, 
     opt = {"roads": int(number(params.get("roads"), 3 if colour else 2, 0, 3)), "rivers": int(number(params.get("rivers"), 1, 0, 2)),
            "rivermin": number(params.get("rivermin"), 2 * miles, 0, 5000),
            "weight": int(number(params.get("weight"), 1, 1, 2)),
-           "labels": int(number(params.get("labels"), 1, 0, 1)), "towns": int(number(params.get("towns"), 1, 0, 1))}
+           "labels": int(number(params.get("labels"), 1, 0, 1)), "towns": int(number(params.get("towns"), 1, 0, 1)),
+           "water": int(number(params.get("water"), 1, 0, 1))}
     if not (basemap and detail):
         draw_base(c, {}, xy, inside, ppm, 0, home, {"ink": ink})
     else:
@@ -950,8 +1300,15 @@ def render(objects, params, basemap=None, now=None, colour=False, symbols=None, 
         else:
             marker(c, x, y, kind_of(o), I(o.get("source") if o.get("source") in ink else "other"))
         reach[n] = icon[0] // 2 + 2 if icon else 8
+        if o.get("stale"):                               # an old position: a dashed box around the marker
+            r = reach[n] + 2
+            for x0, y0, x1, y1 in ((x - r, y - r, x + r, y - r), (x + r, y - r, x + r, y + r),
+                                   (x + r, y + r, x - r, y + r), (x - r, y + r, x - r, y - r)):
+                c.line(x0, y0, x1, y1, I("other"), dash=(2, 2))
+            reach[n] = r + 1
     by_name = str(params.get("names", "1" if colour else "0")) != "0"     # label with the callsign, not a number
-    tags = {n: (display_name(o) if by_name else str(n)) for n, (o, _x, _y) in enumerate(shown, 1)}
+    tags = {n: (display_name(o) if by_name else str(n)) + (f" ({o['age_tag']})" if o.get("age_tag") else "")
+            for n, (o, _x, _y) in enumerate(shown, 1)}
     taken = [(x - reach[n] + 2, y - reach[n] + 2, x + reach[n] - 2, y + reach[n] - 2)      # keep labels off the markers
              for n, (o, x, y) in enumerate(shown, 1)] if by_name else []
     for n, (o, x, y) in enumerate(shown, 1):             # labels, placed where they do not collide
@@ -983,8 +1340,10 @@ def render(objects, params, basemap=None, now=None, colour=False, symbols=None, 
     stamp = time.strftime("%a %H:%M", time.localtime(now)).upper()
     count = f"{len(shown)} ON MAP" + (f" +{len(objects) - len(shown)}" if len(objects) > len(shown) else "")
     bt = ink.get("bartext", 0)
-    c.text(3, 3, "APRS", bt)
-    c.text(max(3 + 5 * CW, (w - len(stamp) * CW) // 2), 3, stamp, bt)
+    room = max(4, (w - 6) // CW - len(stamp) - len(count) - 3)   # a long title pushes the clock right
+    title = (re.sub(r"[^ -~]", "", str(params.get("title") or "APRS")).upper() or "APRS")[:room]
+    c.text(3, 3, title, bt)
+    c.text(max(3 + (len(title) + 1) * CW, (w - len(stamp) * CW) // 2), 3, stamp, bt)
     c.text(w - len(count) * CW - 3, 3, count, bt)
 
     # ---- list ----
