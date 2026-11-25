@@ -11,8 +11,10 @@ The club talk about the Incident Feeder: 11 slides with speaker notes.
 - `banner.png`: the Gloucester County Amateur Radio Club banner on the title slide, taken from the
   club's PowerPoint theme.
 
-The deck is written and presented in Claude (a Slides artifact); these files are a copy of it as of
-the commit that added them. After editing the deck there, copy the files here again and rebuild
+The deck is written and presented in Claude (a Slides artifact); these files started as a copy of it.
+On 2026-11-25 the files here were edited directly (the radio and closing slides and their notes: the
+shorter command, the installer, the documentation site and the GitHub link), so the artifact is now
+the older of the two. Bring those edits into the artifact before presenting from it. After editing the deck there, copy the files here again and rebuild
 `index.html` so the two do not drift apart.
 
 The newsletter article that goes with it is in `../article/`.

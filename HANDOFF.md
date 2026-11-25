@@ -335,6 +335,10 @@ file that say `aprs-pi/` mean the same folder.
      use made-up values (`W3XYZ-10`, feeder `W3FED-15`, 40.00, -75.00). Test fixtures, the slide
      deck and the article were left as they were. The Pi sets `APRS_HOME` itself; this feeder
      code has not been deployed there.
+   - **Deck and article brought up to date, 2026-11-25**: `docs/slides/` (radio and closing
+     slides, their notes, and `index.html`) and `docs/article/README.md` now show the short
+     command, the installer, the documentation site and the GitHub folder, with made-up example
+     coordinates. The files were edited here, so the Slides artifact is now the older copy.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

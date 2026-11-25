@@ -40,7 +40,7 @@ The first packet below is a real one from the feeder's log. The other two show t
 
 ```
 K3YLE-15>APRS,TCPIP*:;TRAFD81BU*241700z4014.24N\07528.65W'VEHICLE ACCIDENT TOWNSHIP LINE RD/BRIDGE ST (PERKIOMEN) @12:00
-K3YLE-15>APRS,TCPIP*:;WNDPHI012*241530z4007.20N\07520.40WgHIGH WIND WRN til Fri
+K3YLE-15>APRS,TCPIP*:;WNDPHI012*241530z4000.60N\07500.90WgHIGH WIND WRN til Fri
 K3YLE-15>APRS,TCPIP*:;FIRE9HH4F_241837z4001.22N/07518.25Wf
 ```
 
@@ -78,15 +78,31 @@ The objects reach APRS-IS, so an internet-connected client shows them today. Put
 Steps 1 to 4 happen at the feeder whether or not anyone is listening. Steps 5 to 9 run at your station, and only when you start the script.
 
 ```
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --kiss-tcp 127.0.0.1:8001
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00
 ```
 
 Run like this, it only prints what it would send, so you can watch it before keying up. Add `--transmit` when the list looks right. Packets go out under your own callsign in APRS third-party form, which keeps igates from sending them back to the internet a second time.
 
-The script is deliberately selective. Within 25 miles of Norristown there are about 130 objects, far too many for a shared 1200 baud channel. It starts with a 10 mile radius, medium importance and above, and at most ten objects on the air at once.
+The script is deliberately selective. Within one 25 mile radius there are about 130 objects, far too many for a shared 1200 baud channel. It starts with a 10 mile radius, medium importance and above, and at most ten objects on the air at once.
 
-`--kiss-tcp` points at your TNC; the address shown is Direwolf's default. The script has keyed a real radio through Direwolf: two objects and their kills went out on 144.39. A second station confirming the decode is the next step. It also transmits the bulletins for critical objects in your area, ahead of the objects.
+The command above uses the defaults: it asks this feeder and talks to Direwolf on the same machine. `--server` names another feeder, `--kiss-tcp` another TNC address, and `--kiss-serial` a hardware TNC on a serial port. The script has keyed a real radio through Direwolf: two objects and their kills went out on 144.39. A second station confirming the decode is the next step. It also transmits the bulletins for critical objects in your area, ahead of the objects.
 
 Adding `--auto` makes the script carry everything in your radius, a little at a time. It sends only two or three packets per poll from a queue: kills first, then bulletins, then objects by importance. A new fire jumps ahead of roadwork, and the low-importance objects go out only when nothing more important is waiting.
 
-If you run an igate or digipeater and would like to carry local incidents for your area, get in touch with K3YLE for the script. To just see the objects, look for **K3YLE-15** on [aprs.fi](https://aprs.fi/info/a/K3YLE-15).
+## Running it all the time
+
+The script lives in the `aprs-incident-rf-bridge` folder of the project's repository, [github.com/kyleyankan/prm-aprs-utils](https://github.com/kyleyankan/prm-aprs-utils/tree/main/aprs-incident-rf-bridge). On a Linux machine beside the radio, a Raspberry Pi for example, one command installs it as a service that starts at boot:
+
+```
+sudo sh systemd/install.sh
+```
+
+The installer asks three things: your callsign, the position at the centre of your area, and a radius. It leaves transmitting off. You read its log until the list looks right, then set `transmit = yes`. The folder's install guide covers the settings, the day-to-day commands and how to take your objects off the air when you stop.
+
+If you run an igate or digipeater and would like to carry local incidents for your area, that is all it takes, and K3YLE would like to hear how it goes.
+
+## See it and read more
+
+- **The live map** is at [aprs-incidents.phlm.sh](https://aprs-incidents.phlm.sh). It shows what is being sent right now, and you can hide the sources and importance levels you do not want to see.
+- **The documentation** is linked from that map, at [aprs-incidents.phlm.sh/docs](https://aprs-incidents.phlm.sh/docs): where the data comes from, how it is processed, and how to deploy it with your radio.
+- **On any APRS map**, look for **K3YLE-15** on [aprs.fi](https://aprs.fi/info/a/K3YLE-15).
