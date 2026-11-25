@@ -39,8 +39,9 @@ with the code.
 - **Importance rules live in one file**, `aprs-incident-feeder/aprs_priority.py` (levels critical, high, medium,
   low). The sender's minimum level, the web map and `/api/packets` all use it; change the rules
   there and add a case to `tests/test_priority.py`.
-- **The Pi's web service is public only at `/api/packets`, `/map` and `/api/public`** (the
-  read-only map and its data; nothing there may change anything or show gateways or services). `https://aprs-incidents.phlm.sh` is a
+- **The Pi's web service is public only at `/api/packets`, `/map`, `/api/public` and `/docs`** (the
+  read-only map and its data, and the documentation pages in `aprs-incident-feeder/public_docs/`, which are
+  public as written, so nothing private goes in them; nothing there may change anything or show gateways or services). `https://aprs-incidents.phlm.sh` is a
   reverse proxy in front of it; requests it passes on (they carry `X-Forwarded-For`) get 403 for
   everything else, because the page has no login and its edits are transmitted. Any new address
   added to `aprs_web.py` is internal unless it is deliberately added to `PUBLIC_PATHS`.

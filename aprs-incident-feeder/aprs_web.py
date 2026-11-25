@@ -46,7 +46,12 @@ a label at the point and a circle of the radius; GET /api/clients is the same as
 popup has "Remove from this layer" (POST /api/forget-client); a station that asks again reappears.
 
 GET /map is a read-only map for anyone: the objects that are on APRS-IS, their level and source, and
-nothing that can change them.  GET /api/public is its data (no gateways, services or edit history).
+nothing that can change them; a visitor can hide importance levels and sources, which is remembered in
+that browser only.  GET /api/public is its data (no gateways, services or edit history).
+
+GET /docs is documentation for the public, linked from that map: every .md file in the public_docs
+folder beside this script (WEB_DOCS_DIR moves it) is one page, /docs/<name>.  A number in front of a
+file's name sets the order.  The pages are read-only and are read from disk on each request.
 
 Each source shows when it was last polled successfully.  One with no good poll for ten minutes is
 marked, with the time aprs_send.py will take its objects off APRS-IS (its maximum age, two hours).
@@ -383,7 +388,8 @@ def forget_client(body):
 # delete and create objects that are then transmitted, so by default the outside world gets only
 # the packet list.  A proxy marks the requests it passes on with X-Forwarded-For (Caddy, nginx and
 # the like do); requests made straight to this machine carry no such header and get everything.
-PUBLIC_PATHS = ("/api/packets", "/map", "/api/public")
+PUBLIC_PATHS = ("/api/packets", "/map", "/api/public", "/docs")
+DOC_PATH = re.compile(r"/docs/([a-z0-9][a-z0-9-]{0,60})")      # one document; also public, read-only
 PUBLIC_CACHE, PUBLIC_LOCK = [0.0, None], threading.Lock()
 
 
@@ -419,7 +425,161 @@ def public_snapshot(now=None):
 def allowed(handler, path):
     if not proxied(handler):
         return True
-    return handler.command == "GET" and path in PUBLIC_PATHS
+    return handler.command == "GET" and (path in PUBLIC_PATHS or bool(DOC_PATH.fullmatch(path)))
+
+
+# ---- /docs: documents for the public -------------------------------------------------------------
+# Every .md file in the documents folder is one page.  A number in front of the name sets the order
+# and is left out of the address: "20-how-it-is-processed.md" is /docs/how-it-is-processed.  The
+# first "# " line is the page's title.  Files are read on each request, so a new or changed file
+# shows up without a restart.  Nothing outside that folder can be reached: an address is matched
+# against the list of files, never turned into a path.
+DOCS_DIR = os.environ.get("WEB_DOCS_DIR") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "public_docs")
+DOC_FILE = re.compile(r"(?:\d+[-_])?([a-z0-9][a-z0-9-]{0,60})\.md")
+
+
+def public_docs():
+    """The documents, in order: [{"slug", "title", "path"}]."""
+    out = []
+    try:
+        names = sorted(os.listdir(DOCS_DIR))
+    except OSError:
+        return out
+    for name in names:
+        m = DOC_FILE.fullmatch(name)
+        path = os.path.join(DOCS_DIR, name)
+        if not m or not os.path.isfile(path) or any(d["slug"] == m.group(1) for d in out):
+            continue
+        title = m.group(1).replace("-", " ").capitalize()
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                        break
+        except (OSError, UnicodeDecodeError):
+            continue
+        out.append({"slug": m.group(1), "title": title, "path": path})
+    return out
+
+
+def html_escape(text):
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+LINK_OK = re.compile(r"(https?://|/|#|mailto:)[^\s\"<>]*")
+
+
+def md_inline(text):
+    """Inline Markdown: `code`, **bold**, *italic* and [text](address).  Everything else is escaped."""
+    parts = re.split(r"(`[^`]+`)", text)
+    for i, part in enumerate(parts):
+        if part.startswith("`") and part.endswith("`") and len(part) > 2:
+            parts[i] = "<code>" + html_escape(part[1:-1]) + "</code>"
+            continue
+        part = html_escape(part)
+
+        def link(m):
+            label, address = m.group(1), m.group(2).replace("&amp;", "&")
+            if not LINK_OK.fullmatch(address):                 # no javascript: or other schemes
+                return m.group(0)
+            new_tab = ' target="_blank" rel="noopener"' if address.startswith("http") else ""
+            return f'<a href="{html_escape(address)}"{new_tab}>{label}</a>'
+        part = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", link, part)
+        part = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", part)
+        part = re.sub(r"(?<![*\w])\*([^*\s][^*]*)\*(?![*\w])", r"<em>\1</em>", part)
+        parts[i] = part
+    return "".join(parts)
+
+
+def markdown_html(text):
+    """A small Markdown reader, standard library only: # headings, paragraphs, - and 1. lists,
+    ``` code blocks, | tables | and > notes, with md_inline inside them.  HTML in the file is shown
+    as text, not run."""
+    out, lines, i = [], text.replace("\r\n", "\n").split("\n"), 0
+
+    def cells(row):
+        return [c.strip() for c in row.strip().strip("|").split("|")]
+
+    while i < len(lines):
+        line = lines[i]
+        s = line.strip()
+        if not s:
+            i += 1
+        elif s.startswith("```"):
+            body = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                body.append(lines[i])
+                i += 1
+            i += 1
+            out.append("<pre><code>" + html_escape("\n".join(body)) + "</code></pre>")
+        elif re.match(r"#{1,4} ", s):
+            level = len(s) - len(s.lstrip("#"))
+            title = s[level:].strip()
+            anchor = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+            out.append(f'<h{level} id="{anchor}">{md_inline(title)}</h{level}>')
+            i += 1
+        elif s.startswith("|") and i + 1 < len(lines) and re.fullmatch(r"\|?[\s:|-]+\|?", lines[i + 1].strip()) and "-" in lines[i + 1]:
+            head = cells(s)
+            i += 2
+            rows = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                rows.append(cells(lines[i]))
+                i += 1
+            out.append("<table><thead><tr>" + "".join(f"<th>{md_inline(c)}</th>" for c in head) + "</tr></thead><tbody>"
+                       + "".join("<tr>" + "".join(f"<td>{md_inline(c)}</td>" for c in r) + "</tr>" for r in rows)
+                       + "</tbody></table>")
+        elif re.match(r"([-*]|\d+[.)]) ", s):
+            ordered = s[0].isdigit()
+            items = []
+            while i < len(lines):
+                t = lines[i].strip()
+                m = re.match(r"(?:[-*]|\d+[.)]) (.*)", t)
+                if m and (t[0].isdigit() == ordered):
+                    items.append(m.group(1))
+                elif t and lines[i][:1] in " \t" and items:        # an indented line continues the item
+                    items[-1] += " " + t
+                else:
+                    break
+                i += 1
+            tag = "ol" if ordered else "ul"
+            out.append(f"<{tag}>" + "".join(f"<li>{md_inline(x)}</li>" for x in items) + f"</{tag}>")
+        elif s.startswith(">"):
+            quote = []
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                quote.append(lines[i].strip()[1:].strip())
+                i += 1
+            out.append("<blockquote>" + md_inline(" ".join(quote)) + "</blockquote>")
+        else:
+            para = []
+            while i < len(lines) and lines[i].strip() and not re.match(r"(#{1,4} |```|\||>|([-*]|\d+[.)]) )", lines[i].strip()):
+                para.append(lines[i].strip())
+                i += 1
+            if not para:                                       # a line that only looks like a block start
+                para, i = [s], i + 1
+            out.append("<p>" + md_inline(" ".join(para)) + "</p>")
+    return "\n".join(out)
+
+
+def docs_page(slug=None):
+    """(status, html) for /docs (the list, or the first document) and /docs/<slug>."""
+    docs = public_docs()
+    doc = next((d for d in docs if d["slug"] == slug), None) if slug else (docs[0] if docs else None)
+    if slug and doc is None:
+        code, title, body = 404, "No such document", '<h1>No such document</h1><p>That page does not exist. Pick one from the list.</p>'
+    elif doc is None:
+        code, title, body = 200, "Documentation", "<h1>Documentation</h1><p>No documents have been added yet.</p>"
+    else:
+        try:
+            with open(doc["path"], encoding="utf-8") as f:
+                code, title, body = 200, doc["title"], markdown_html(f.read())
+        except (OSError, UnicodeDecodeError):
+            code, title, body = 500, "Cannot read that document", "<h1>Cannot read that document</h1>"
+    nav = "".join(f'<a href="/docs/{d["slug"]}"{" class=\"on\"" if d is doc else ""}>{html_escape(d["title"])}</a>' for d in docs)
+    page = (DOCS_PAGE.replace("{{title}}", html_escape(title)).replace("{{nav}}", nav or '<span class="mute">Nothing here yet.</span>')
+            .replace("{{body}}", body))
+    return code, page
 
 
 def prune(overrides, objects):
@@ -662,7 +822,7 @@ class Handler(BaseHTTPRequestHandler):
         return {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()}
 
     def refuse(self):
-        self.reply(403, {"error": "only /map, /api/public and /api/packets are available at this address"})
+        self.reply(403, {"error": "only /map, /docs, /api/public and /api/packets are available at this address"})
 
     def do_GET(self):
         p = self.path.split("?")[0]
@@ -677,6 +837,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, PUBLIC_PAGE.encode(), "text/html; charset=utf-8")
         elif p == "/api/public":
             self.reply(200, public_snapshot())
+        elif p == "/docs" or DOC_PATH.fullmatch(p):
+            m = DOC_PATH.fullmatch(p)
+            code, page = docs_page(m.group(1) if m else None)
+            self.reply(code, page.encode(), "text/html; charset=utf-8")
         elif p == "/api/objects":
             self.reply(200, snapshot())
         elif p == "/api/packets":
@@ -752,6 +916,57 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(code, payload)
 
 
+DOCS_PAGE = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} · APRS Incident Feeder</title>
+<script>(function(){var t;try{t=localStorage.getItem("aprs-theme")}catch(e){}
+ if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t;})();</script>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:#1c2330;--mute:#5b6472;--line:#dfe3ea;--accent:#1f5fd0;--hover:#f0f4fb;--field:#fff;--code:#f1f3f7;color-scheme:light}
+:root[data-theme=dark]{--bg:#0f1318;--panel:#171c23;--ink:#e6e9ee;--mute:#98a2b3;--line:#2b333e;--accent:#5b9bff;--hover:#1f2731;--field:#10151b;--code:#10151b;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+a{color:var(--accent)}
+.bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar strong{flex:1}
+#theme{font:inherit;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--ink);cursor:pointer}
+.wrap{display:flex;gap:24px;max-width:1040px;margin:0 auto;padding:20px 16px 48px;align-items:flex-start}
+nav{width:230px;flex:none;position:sticky;top:16px;display:flex;flex-direction:column;gap:2px}
+nav a{padding:7px 10px;border-radius:6px;text-decoration:none;color:var(--ink)}
+nav a:hover{background:var(--hover)}
+nav a.on{background:var(--panel);border:1px solid var(--line);font-weight:600}
+.mute{color:var(--mute)}
+main{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 28px 28px}
+main h1{font-size:26px;line-height:1.25;margin:20px 0 8px}
+main h2{font-size:19px;margin:28px 0 6px;padding-top:14px;border-top:1px solid var(--line)}
+main h3{font-size:16px;margin:20px 0 4px}
+main p,main li{max-width:72ch}
+main li{margin:3px 0}
+code{font:13px ui-monospace,Menlo,Consolas,monospace;background:var(--code);padding:1px 5px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mute);font-weight:600;white-space:nowrap}
+blockquote{margin:14px 0;padding:8px 14px;border-left:3px solid var(--accent);background:var(--hover);border-radius:0 6px 6px 0}
+@media (max-width:760px){.wrap{flex-direction:column;gap:12px}nav{width:100%;position:static;flex-direction:row;flex-wrap:wrap}main{padding:4px 16px 20px}}
+</style></head><body>
+<div class="bar"><strong>APRS Incident Feeder: documentation</strong><a href="/map">Live map</a>
+ <button id="theme" onclick="flipTheme()" title="Switch between light and dark">Dark</button></div>
+<div class="wrap">
+ <nav>{{nav}}</nav>
+ <main>{{body}}</main>
+</div>
+<script>
+function showTheme(){document.getElementById("theme").textContent=document.documentElement.dataset.theme==="dark"?"Light":"Dark";}
+function flipTheme(){const t=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=t;
+  try{localStorage.setItem("aprs-theme",t)}catch(e){} showTheme();}
+showTheme();
+</script></body></html>
+"""
+
+
 PUBLIC_PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -788,16 +1003,26 @@ h1{font-size:16px;margin:0 0 2px;flex:1}
 .nm{font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace}
 .cm{overflow-wrap:anywhere}
 .late{color:var(--late)}
+#docs{font-size:13px;white-space:nowrap}
+#cnt .lv{cursor:pointer;user-select:none}
+.lv.off{opacity:.35;text-decoration:line-through}
+#srcs{padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px;display:flex;flex-direction:column;gap:3px}
+#srcs label{display:flex;gap:8px;align-items:center;cursor:pointer}
+#srcs input{margin:0}
+#srcs .n{margin-left:auto;color:var(--mute);font-variant-numeric:tabular-nums}
+#srcs .hint,#cnt+.hint{color:var(--mute);font-size:12px}
 footer{padding:8px 14px;border-top:1px solid var(--line)}
 @media (max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;height:46%;border-right:0;border-top:1px solid var(--line)}}
 </style></head><body>
 <div id="app">
  <div id="side">
-  <header><div class="top"><h1>APRS Incident Feeder</h1><button id="theme" onclick="flipTheme()" title="Switch between light and dark">Dark</button></div><div id="meta">loading…</div><div id="cnt"></div></header>
+  <header><div class="top"><h1>APRS Incident Feeder</h1><a id="docs" href="/docs" title="Where the data comes from, how it is processed, and how to deploy it with your radio">Documentation</a><button id="theme" onclick="flipTheme()" title="Switch between light and dark">Dark</button></div><div id="meta">loading…</div><div id="cnt"></div><div class="hint">Click a level to hide or show it.</div></header>
+  <div id="srcs"></div>
   <input id="find" placeholder="Filter by name or text" oninput="draw()">
   <div id="list"></div>
   <footer><span id="src"></span><br>Read-only view of the objects <a id="fi" target="_blank" rel="noopener"></a> sends to APRS-IS,
-   taken from public dispatch, traffic and weather sources. It can be late or wrong: not for emergency use.</footer>
+   taken from public dispatch, traffic and weather sources. It can be late or wrong: not for emergency use.
+   <a href="/docs">Where the data comes from and how to use it</a>.</footer>
  </div>
  <div id="map"></div>
 </div>
@@ -813,8 +1038,24 @@ const map=L.map("map").setView([40.12,-75.34],10);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
 const layer=L.layerGroup().addTo(map); let data={objects:[],levels:{},sources:[]}, marks={}, first=true;
 function pop(o){return `<b>${esc(o.name)}</b> <span class="lv ${o.level}">${o.level}</span><br>${esc(o.comment)||"<i>(no text)</i>"}<br><span class="sr">${o.source_url?`<a href="${esc(o.source_url)}" target="_blank" rel="noopener">${esc(o.source_label)}</a>`:esc(o.source_label)} · read ${hhmm(o.updated)}</span>`;}
+// What this visitor has switched off, remembered in this browser: importance levels and sources (by their name).
+function saved(k){try{return new Set(JSON.parse(localStorage.getItem(k)||"[]"));}catch(e){return new Set();}}
+const offLv=saved("aprs-public-levels"), offSrc=saved("aprs-public-sources");
+function flip(set,key,v){ if(set.has(v)) set.delete(v); else set.add(v);
+  try{localStorage.setItem(key,JSON.stringify([...set]));}catch(e){} panel(); draw(); }
+function wanted(o){return !offLv.has(o.level)&&!offSrc.has(o.source_label);}
+function panel(){
+  const LV=["critical","high","medium","low"], per={};
+  for(const o of data.objects) per[o.source_label]=(per[o.source_label]||0)+1;
+  $("cnt").innerHTML=LV.map(l=>`<span><span class="lv ${l}${offLv.has(l)?" off":""}" data-l="${l}" title="${offLv.has(l)?"Show":"Hide"} ${l}">${l}</span> ${data.levels[l]||0}</span>`).join("");
+  const names=[...new Set([...data.sources.map(s=>s.label),...Object.keys(per)])];
+  $("srcs").innerHTML=names.map(n=>`<label><input type="checkbox" data-s="${esc(n)}"${offSrc.has(n)?"":" checked"}><span>${esc(n)}</span><span class="n">${per[n]||0}</span></label>`).join("")||'<span class="hint">No sources yet.</span>';
+}
+$("cnt").onclick=e=>{const l=e.target.dataset&&e.target.dataset.l; if(l) flip(offLv,"aprs-public-levels",l);};
+$("srcs").onchange=e=>{const n=e.target.dataset&&e.target.dataset.s; if(n!==undefined) flip(offSrc,"aprs-public-sources",n);};
 function draw(){
-  const f=$("find").value.trim().toLowerCase(), shown=data.objects.filter(o=>!f||(o.name+" "+o.comment).toLowerCase().includes(f));
+  const f=$("find").value.trim().toLowerCase(), shown=data.objects.filter(o=>wanted(o)&&(!f||(o.name+" "+o.comment).toLowerCase().includes(f)));
+  $("meta").textContent=`${shown.length===data.objects.length?data.count:shown.length+" of "+data.count+" shown,"} on APRS-IS · updated ${hhmm(data.now)}`;
   layer.clearLayers(); marks={};
   for(const o of shown){
     if(o.shape&&o.shape.points){const st={color:COL[o.level],weight:2,fillOpacity:.08,interactive:false};
@@ -826,8 +1067,7 @@ function draw(){
 $("list").onclick=e=>{const r=e.target.closest(".row"), m=r&&marks[r.dataset.n]; if(m){map.setView(m.getLatLng(),Math.max(map.getZoom(),13)); m.openPopup();}};
 async function load(){
   try{const r=await fetch("/api/public"); data=await r.json();}catch(e){$("meta").textContent="Cannot reach the server."; return;}
-  $("meta").textContent=`${data.count} on APRS-IS · updated ${hhmm(data.now)}`;
-  $("cnt").innerHTML=["critical","high","medium","low"].map(l=>`<span><span class="lv ${l}">${l}</span> ${data.levels[l]||0}</span>`).join("");
+  panel();
   $("fi").textContent=data.callsign; $("fi").href="https://aprs.fi/info/a/"+encodeURIComponent(data.callsign);
   $("src").innerHTML="Sources: "+data.sources.map(s=>`<span class="${s.late?"late":""}">${esc(s.label)}${s.late?" (not answering since "+hhmm(s.updated)+")":""}</span>`).join(" · ");
   draw();

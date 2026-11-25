@@ -290,6 +290,28 @@ file that say `aprs-pi/` mean the same folder.
      code 2, and the example ships with `transmit = no`. Tried in a Debian 12 container running
      systemd (install, refusal of N0CALL, a print-only run against a fake feeder, update,
      uninstall); not tried on a Raspberry Pi, with a serial TNC, or on the air.
+   - **Public map filters and `/docs`, 2026-11-25** (`aprs_web.py`): on `/map` a visitor can hide
+     importance levels (click one) and sources (untick one); the choice is kept in that browser's
+     localStorage. `/docs` and `/docs/<name>` are new public, read-only pages: each `.md` file in
+     `aprs-incident-feeder/public_docs/` is one page (a number in front of the file name sets the
+     order; `WEB_DOCS_DIR` moves the folder), rendered by a small standard-library Markdown
+     reader that escapes HTML and allows only http(s), site-relative and mailto links. Three
+     starter documents: where the data comes from, how it is processed, and deploying it with a
+     radio with aprs-radio. `/docs` is in `PUBLIC_PATHS`; an address is matched against the list
+     of files, never turned into a path. Tested with unit tests and a local run with made-up
+     objects; not deployed to the Pi. The `public_docs` folder has to be copied to the Pi with
+     the scripts.
+   - **Deployed 2026-11-25**: the filters and `/docs` are live (`aprs_web.py`, `README.txt` and
+     `public_docs/` copied to `~/aprs-pi`; the old two files kept there as `.bak-20261125`). The
+     Caddy proxy has its own allow list, so `/docs /docs/ /docs/*` were added to the site's
+     `@page` matcher in its Caddyfile (previous file kept beside it as
+     `Caddyfile.bak-20261125-docs`). A new public address needs both layers.
+   - **aprs-radio on the Pi, 2026-11-25**: installed with `aprs-radio/systemd/install.sh` (source
+     copy in `~/aprs-radio`, service `aprs-radio`, enabled). Settings in
+     `/etc/aprs-radio/aprs-radio.conf`: K3YLE-10, the feeder asked directly at
+     `http://127.0.0.1:8080`, a centre the owner chose with a 6.2 mile (10 km) radius, `auto = yes`,
+     Direwolf channel 0 on `127.0.0.1:8001`, and **`transmit = no`**: it logs what it would send
+     and keys nothing. The owner turns transmitting on.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

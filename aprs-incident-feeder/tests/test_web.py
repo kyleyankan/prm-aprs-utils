@@ -259,6 +259,62 @@ class PublicMapAndFeedHealth(unittest.TestCase):
         self.assertEqual(self.get("/api/public", proxied=True, method="POST", body={})[0], 403)
         self.assertIn(b"New object", self.get("/")[1])                           # the editor is still at / on the inside
 
+    def test_the_public_map_has_its_filters_and_a_link_to_the_documentation(self):
+        page = self.get("/map", proxied=True)[1].decode()
+        self.assertIn('href="/docs"', page)
+        for part in ('id="srcs"', "aprs-public-levels", "aprs-public-sources", "Click a level to hide or show it"):
+            self.assertIn(part, page)                                            # hide by source, hide by level
+
+    def docs_folder(self, files):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        for name, text in files.items():
+            with open(os.path.join(folder.name, name), "w", encoding="utf-8") as f:
+                f.write(text)
+        old, aprs_web.DOCS_DIR = aprs_web.DOCS_DIR, folder.name
+        self.addCleanup(setattr, aprs_web, "DOCS_DIR", old)
+
+    def test_documents_are_public_pages_in_file_order_and_read_only(self):
+        self.docs_folder({"20-second.md": "# The second one\n\nSee [the first](/docs/first).\n",
+                          "10-first.md": "# The first one\n\n| A | B |\n|---|---|\n| 1 | <script>x</script> |\n\n- **bold** item\n",
+                          "notes.txt": "not a document", "Bad Name.md": "# ignored"})
+        self.assertEqual([d["slug"] for d in aprs_web.public_docs()], ["first", "second"])
+        code, page = self.get("/docs", proxied=True)                             # the first document
+        page = page.decode()
+        self.assertEqual(code, 200)
+        self.assertIn('<h1 id="the-first-one">The first one</h1>', page)
+        self.assertIn('<a href="/docs/first" class="on">The first one</a><a href="/docs/second">The second one</a>', page)
+        self.assertIn("<td>&lt;script&gt;x&lt;/script&gt;</td>", page)           # HTML in a file is text
+        self.assertIn("<li><strong>bold</strong> item</li>", page)
+        self.assertIn('href="/map"', page)
+        code, page = self.get("/docs/second", proxied=True)
+        self.assertEqual(code, 200)
+        self.assertIn(b'<a href="/docs/first">the first</a>', page)
+        self.assertEqual(self.get("/docs/nothing", proxied=True)[0], 404)
+        self.assertEqual(self.get("/docs/second", proxied=True, method="POST", body={})[0], 403)
+
+    def test_a_document_address_cannot_reach_other_files(self):
+        self.docs_folder({"10-first.md": "# One\n"})
+        with open(os.path.join(os.path.dirname(aprs_web.DOCS_DIR), "secret.md"), "w") as f:
+            f.write("# secret")
+        self.addCleanup(os.unlink, f.name)
+        for path in ("/docs/..%2Fsecret", "/docs/../secret", "/docs/first.md", "/docs/first/extra", "/docs/FIRST", "/docsx"):
+            code, page = self.get(path, proxied=True)
+            self.assertIn(code, (403, 404), path)
+            self.assertNotIn(b"secret", page.lower().replace(b"no such", b""), path)
+
+    def test_links_in_a_document_cannot_run_script(self):
+        html = aprs_web.markdown_html("[x](javascript:alert(1)) [ok](https://example.org/a?b=1&c=2) `<b>`")
+        self.assertNotIn("<a href=\"javascript", html)
+        self.assertIn('<a href="https://example.org/a?b=1&amp;c=2" target="_blank" rel="noopener">ok</a>', html)
+        self.assertIn("<code>&lt;b&gt;</code>", html)
+
+    def test_no_documents_yet_is_a_plain_page(self):
+        self.docs_folder({})
+        code, page = self.get("/docs", proxied=True)
+        self.assertEqual(code, 200)
+        self.assertIn(b"No documents have been added yet", page)
+
     def test_objects_held_back_or_taken_off_are_not_on_the_public_map(self):
         aprs_web.PUBLIC_CACHE[1] = None
         aprs_web.ARGS.send = True

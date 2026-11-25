@@ -481,6 +481,7 @@ no connection. This is the safe test mode and the default.
 | `/` | the map and editor page (through the proxy: the read-only map) |
 | `/map` | a read-only map for anyone: what is on APRS-IS, with level and source. Public |
 | `GET /api/public` | the read-only map's data: objects on APRS-IS only, no gateways, services or edits. Public, rebuilt at most every 15 s |
+| `/docs`, `/docs/<name>` | documentation for the public: each `.md` file in `public_docs/` is a page, read from disk on every request. Public, read-only |
 | `GET /api/objects` | every live object with its source, level, score, reasons and send times; counts per level; the minimum level |
 | `GET /api/packets?lat=&lon=&miles=` | packets near a point for a radio to transmit; options `min`, `kills`, `limit`, `since`, `via`, `format=text`. The only address that answers through the public proxy |
 | `GET /api/clients` | the stations that asked `/api/packets` in the last 7 days |

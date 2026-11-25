@@ -126,13 +126,29 @@ Radio gateways (who is asking for packets)
      is listed again from that moment.
      http://<pi address>:8080/api/clients      the same as JSON.  Kept in data/api_clients.json.
 
+Public documentation (/docs)
+     The read-only map links to "Documentation": pages for the public about where the data comes
+     from, how it is processed, and how to deploy it with a radio using aprs-radio.
+     Each page is a text file in the public_docs folder beside the scripts, written in Markdown
+     (# headings, lists, tables, links, ``` code blocks). To add a page, put a .md file there;
+     to change one, edit the file. No restart is needed.
+       10-where-the-data-comes-from.md   ->  /docs/where-the-data-comes-from
+     The number in front sets the order in the menu and is left out of the address. The first
+     "# " line is the page's title. File names: lower-case letters, digits and hyphens.
+     Everything in that folder is public, so put nothing private in it. HTML written in a file
+     is shown as text, and pictures are not supported.
+     aprs.env: WEB_DOCS_DIR=/some/folder uses a different folder.
+
 Public address (reverse proxy)
      https://aprs-incidents.phlm.sh passes requests to this web service. Through it, ONLY these
-     answer: /map (a read-only map for anyone; / shows it too), /api/public (its data) and
-     /api/packets. The editor page, the settings and every other address return 403.
+     answer: /map (a read-only map for anyone; / shows it too), /api/public (its data), /docs
+     (documentation for the public) and /api/packets. The editor page, the settings and every
+     other address return 403.
      The read-only map lists the objects that are on APRS-IS with their level and source. It has
      no buttons that change anything, and its data leaves out held-back objects, the radio
-     gateways and the services. On your own network it is at http://<pi address>:8080/map.
+     gateways and the services. A visitor can hide importance levels (click a level) and
+     sources (untick one); the choice is kept in that visitor's own browser and changes nothing
+     for anyone else. On your own network it is at http://<pi address>:8080/map.
      The web service tells the two apart by the X-Forwarded-For header that the proxy adds, so
      keep the proxy adding it. On your own network, http://<pi address>:8080/ works in full.
      aprs.env: WEB_PROXIED=all lifts the limit. Do that only if the proxy itself asks for a login,
