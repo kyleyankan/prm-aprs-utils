@@ -213,9 +213,18 @@ With the traffic of that day, "medium and above" would kill about 160 roadwork o
    start-up can stall on a slow reverse-DNS lookup of the machine's address.
 5. **Radio side of `/api/packets`**: `aprs-radio/aprs_radio.py` (2026-11-24) polls it and sends to a
    KISS TNC over TCP or a serial port, with small default limits and print-only unless `--transmit`.
-   It passes its tests against a fake feeder and fake TNC and reads the Pi's real list, but **it has
-   never keyed a real radio or been decoded off the air**. Still open:
-   - Try it with Direwolf and a radio, and check another station decodes the third-party packets.
+   It passes its tests against a fake feeder and fake TNC and reads the Pi's real list.
+   **First on-air test, 2026-11-24 (evening, local):** run from the owner's Mac as `K3YLE-10`
+   through the Pi's Direwolf (`--kiss-tcp <pi address>:9001 --kiss-port 0`; port 9001 is the
+   all-channel KISS port, channel 0 is the 1200 baud radio, channel 11 is a network channel), with
+   `--miles 10 --min low --max-objects 2 --once` and no path. Direwolf's console log shows PTT keyed
+   and `[0L] K3YLE-10>APZIFD:}K3YLE-15>APRS,TCPIP,K3YLE-10*:;...` for two objects, then for their
+   two kills (a second run with `--max-objects 0`). So the KISS framing, AX.25 addresses and
+   third-party form are accepted by a real TNC and went out on RF. **Not shown yet: that another
+   station decodes them** (nothing else was listening; igates do not pass third-party packets, so
+   aprs.fi cannot confirm it). Nothing is left running. Still open:
+   - Have a second receiver (handheld, another station's APRS display) confirm the objects appear
+     and are removed by the kills.
    - **Reaching the feeder.** The owner put the web service behind a reverse proxy (Caddy) at
      `https://aprs-incidents.phlm.sh`. A test on 2026-11-24 showed the proxy passed everything
      through: the map, `/api/objects` and the POST addresses all answered from the internet, with

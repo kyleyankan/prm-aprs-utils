@@ -95,6 +95,11 @@ The defaults are deliberately small, because a shared 1200 baud channel fills qu
 | `--poll` | 120 | seconds between polls of the feeder (never less than 60) |
 | `--refresh` | 30 | minutes before an unchanged object is sent again (never less than 10) |
 | `--path` | none | digipeater path, such as `WIDE2-1` |
+| `--kiss-port` | 0 | which radio to use on a TNC with more than one |
+
+On Direwolf, a `KISSPORT` line with no channel number serves every channel, and `--kiss-port` is
+then the Direwolf channel to transmit on (`--kiss-port 0` for `CHANNEL 0`). A `KISSPORT` line that
+names a channel always uses that channel.
 
 With `--min low` the list fills with roadwork. Leave it at `medium` or higher unless your area is
 quiet.
@@ -134,7 +139,9 @@ WantedBy=multi-user.target
 ```
 
 If you stop it for good while objects are on the air, they are not killed; they fade from maps as
-clients time them out.
+clients time them out. To take them off at once, run it one more time with the same settings and
+state file plus `--max-objects 0 --once --transmit`: it sends a kill for each object it still
+carries and then exits.
 
 ## Tests
 
