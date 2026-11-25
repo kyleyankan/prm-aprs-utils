@@ -15,8 +15,8 @@ Raspberry Pi OS, Ubuntu, Fedora and Arch.
   uses only what comes with Python.
 - **A KISS TNC** that machine can reach: Direwolf or another software TNC with its KISS TCP port on
   (Direwolf's default is 8001), or a hardware TNC in KISS mode on a serial port.
-- **The feeder's address.** K3YLE's feeder is at `https://aprs-incidents.phlm.sh`. Another feeder's
-  operator will give you theirs.
+- **The feeder's address**, only if you use a feeder other than K3YLE's at
+  `https://aprs-incidents.phlm.sh`, which is the default.
 - **Your position** as a latitude and longitude, and a radius in miles.
 
 What the feeder's operator sees: each request carries your callsign, the position and radius you ask
@@ -53,11 +53,13 @@ Each line is `name = value`. Lines starting with `#` are ignored. Set these firs
 
 | Setting | What to put |
 |---|---|
-| `server` | The feeder's address |
 | `callsign` | Your callsign and SSID, e.g. `W3XYZ-10`. The service refuses to start while it is `N0CALL`. |
 | `lat`, `lon` | The centre of your area in decimal degrees. West and south are negative. |
 | `miles` | The radius around that point |
 | `transmit` | Leave it at `no` for now |
+
+The feeder asked is `https://aprs-incidents.phlm.sh`. To use another one, remove the `#` from the
+`server` line and put its address there.
 
 Then tell it where your TNC is. Use one of these:
 
@@ -94,7 +96,7 @@ journalctl -u aprs-incident-rf-bridge -f
 You should see something like this:
 
 ```
-# aprs_radio 1.3 for W3XYZ-10 (print-only: nothing is transmitted)
+# aprs_radio 1.4 for W3XYZ-10 (print-only: nothing is transmitted)
 # asking https://aprs-incidents.phlm.sh/api/packets?lat=40.12000&lon=-75.34000&miles=10&min=medium&via=W3XYZ-10
 # every 120s; at most 10 objects, 6 packets per poll, 8s apart; refresh every 30 min
 (not transmitted) new: W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4007.80N/07519.80WdBUILDING FIRE MAIN ST/OAK ST

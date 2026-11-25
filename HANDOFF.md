@@ -320,6 +320,10 @@ file that say `aprs-pi/` mean the same folder.
      (settings, the sent-list, enabled and running state) and removes the old service; that was
      tried in a Debian 12 container and then used on the Pi, where the service now runs under
      the new name with the same settings, still `transmit = no`.
+   - **Default feeder, 2026-11-25** (`aprs_radio.py` 1.4): `--server` is no longer required and
+     defaults to `https://aprs-incidents.phlm.sh`. The examples in the documents leave it out,
+     and the example settings file has `server` commented. The Pi's own settings name
+     `http://127.0.0.1:8080` explicitly, so they are unaffected.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

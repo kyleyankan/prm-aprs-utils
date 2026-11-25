@@ -68,7 +68,7 @@ cd tests && python3 -m unittest test_priority test_send test_web test_water  # r
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
 # aprs-incident-rf-bridge (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
-python3 aprs-incident-rf-bridge/aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+python3 aprs-incident-rf-bridge/aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
 cd aprs-incident-rf-bridge/tests && python3 -m unittest test_radio
 sudo sh aprs-incident-rf-bridge/systemd/install.sh   # on a Linux machine: install it as a systemd service (settings in /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf, see aprs-incident-rf-bridge/INSTALL.md)
 

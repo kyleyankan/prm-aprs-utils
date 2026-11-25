@@ -37,7 +37,7 @@ Run it once with your own callsign and position. Without `--transmit` it only pr
 would send:
 
 ```
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
 ```
 
 Each line shows why a packet would be sent (`new`, `changed`, `refresh` or `kill`) and the packet.
@@ -48,7 +48,7 @@ If the list is longer than you want on the air, use a smaller `--miles` or a hig
 When the list looks right, add `--transmit`:
 
 ```
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
 ```
 
 That uses Direwolf on the same computer. For a hardware TNC on a serial port, add

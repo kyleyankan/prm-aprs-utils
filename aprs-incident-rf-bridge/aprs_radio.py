@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Put the Incident Feeder's objects for your area on the air through your own TNC.
 
-  python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34
+  python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34
   ... add --transmit to really send; without it the packets are only printed.
   ... or keep the settings in a file: --config FILE (see systemd/aprs-incident-rf-bridge.conf.example).
       INSTALL.md shows how to run it as a systemd service.
@@ -65,7 +65,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "1.3"
+VERSION = "1.4"
+SERVER = "https://aprs-incidents.phlm.sh"     # the feeder asked unless --server names another
 TOCALL = "APZIFD"                 # APZ... = experimental software; change with --tocall
 USER_AGENT = f"aprs-radio/{VERSION} (Incident Feeder RF gateway)"
 CALL_OK = re.compile(r"[A-Z0-9]{1,6}(-([0-9]|1[0-5]))?")
@@ -480,7 +481,7 @@ def parse_args(argv=None):
     ap.add_argument("--config", metavar="FILE",
                     help="read settings from this file (name = value lines); options given on the "
                          "command line as well win over the file")
-    ap.add_argument("--server", required=True, help="the feeder's address, e.g. https://aprs-incidents.phlm.sh")
+    ap.add_argument("--server", default=SERVER, help=f"the feeder's address (default {SERVER})")
     ap.add_argument("--callsign", required=True, help="YOUR callsign-SSID, the station that transmits (e.g. W3XYZ-10)")
     ap.add_argument("--lat", type=float, required=True, help="latitude of the centre of your area, e.g. 40.12")
     ap.add_argument("--lon", type=float, required=True, help="longitude, negative for west, e.g. -75.34")

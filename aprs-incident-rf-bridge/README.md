@@ -39,8 +39,8 @@ instead of sending it.
   control operator.
 - **A KISS TNC.** A software TNC such as Direwolf with its KISS TCP port on (the default, 8001), or
   a hardware TNC in KISS mode on a serial port.
-- **The feeder's address.** K3YLE's feeder is at `https://aprs-incidents.phlm.sh`. Another feeder's operator will give you
-  theirs.
+- **The feeder's address**, only if you use a feeder other than K3YLE's. The script asks
+  `https://aprs-incidents.phlm.sh` unless you give it `--server` with another feeder's address.
 - **Your position** as a latitude and longitude, and a radius in miles.
 
 What the feeder's operator sees: each request carries your callsign, the position and radius you
@@ -52,7 +52,7 @@ operator's map.
 Without `--transmit` the script only prints what it would send. Start here:
 
 ```sh
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
 ```
 
 Each line shows the reason (`new`, `changed`, `refresh`, `kill` or `dropped`) and the packet.
@@ -63,10 +63,10 @@ Add `--transmit` once the list looks right.
 
 ```sh
 # Direwolf or another software TNC on this machine
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
 
 # a hardware TNC in KISS mode (Linux or macOS)
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 \
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 \
     --kiss-serial /dev/ttyUSB0 --baud 9600 --transmit
 ```
 
@@ -87,6 +87,7 @@ The defaults are deliberately small, because a shared 1200 baud channel fills qu
 
 | Option | Default | Meaning |
 |---|---|---|
+| `--server` | `https://aprs-incidents.phlm.sh` | the feeder to ask |
 | `--miles` | 10 | radius around your position |
 | `--min` | medium | least important level to carry: `low`, `medium`, `high` or `critical` |
 | `--max-objects` | 10 | most objects kept on the air at once, most important first |
@@ -118,7 +119,7 @@ day some low ones wait longer or are never sent; that is the intent. `--min` and
 still limit the list if you give them, and `--max-per-poll` is not used in this mode.
 
 ```sh
-python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --miles 15 --auto
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --miles 15 --auto
 ```
 
 **Bulletins.** When an object rated critical (a tornado warning, an entrapment, an explosion) is

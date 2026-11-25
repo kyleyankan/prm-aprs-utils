@@ -6,9 +6,6 @@
 
 # ---- Required -----------------------------------------------------------------
 
-# The Incident Feeder to ask. Its operator gives you this address.
-server = https://aprs-incidents.phlm.sh
-
 # YOUR callsign and SSID: the station that transmits. The service will not start
 # while this is N0CALL.
 callsign = N0CALL
@@ -18,6 +15,12 @@ callsign = N0CALL
 lat = 40.12
 lon = -75.34
 miles = 10
+
+# ---- The feeder ---------------------------------------------------------------
+
+# The Incident Feeder to ask. Leave this line as it is to use K3YLE's feeder,
+# https://aprs-incidents.phlm.sh. For another feeder, remove the # and put its address.
+# server = https://aprs-incidents.phlm.sh
 
 # ---- Transmitting ---------------------------------------------------------------
 

@@ -258,6 +258,9 @@ class EndToEnd(unittest.TestCase):
                         R.parse_args(base + bad)
                     finally:
                         sys.stderr = old
+        a = R.parse_args(["--callsign", ME, "--lat", "40", "--lon", "-75"])            # no --server: K3YLE's feeder
+        self.assertEqual(a.server, "https://aprs-incidents.phlm.sh")
+        self.assertTrue(R.api_url(a.server + "/", ME, 40, -75, 10, "medium").startswith("https://aprs-incidents.phlm.sh/api/packets?"))
         a = R.parse_args(base + ["--callsign", ME, "--poll", "5", "--gap", "0", "--refresh", "1"])
         self.assertEqual((a.poll, a.gap, a.refresh), (60, 2.0, 10.0))     # floors that protect the channel
 
