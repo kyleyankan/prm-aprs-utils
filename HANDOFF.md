@@ -339,6 +339,15 @@ file that say `aprs-pi/` mean the same folder.
      slides, their notes, and `index.html`) and `docs/article/README.md` now show the short
      command, the installer, the documentation site and the GitHub folder, with made-up example
      coordinates. The files were edited here, so the Slides artifact is now the older copy.
+   - **Pi brought up to date, 2026-11-25**: every feeder file on the Pi now matches the
+     repository (`aprs_web.py`, `aprs_nws.py`, `aprs_eink.py`, `aprs_listen.py`, `aprs_ctl.sh`,
+     `README.txt`, `ARCHITECTURE.md`, `public_docs/`); the files they replaced are beside them as
+     `.bak-20261125b`. Files were swapped with `mv`, not written in place, because the
+     supervisor is a running bash script. Only `web` and `nws` were restarted. The bridge there
+     was updated to 1.4 with its installer, which kept the settings. The owner had since edited
+     those settings: it asks the public address, uses a 10 mile radius and Direwolf's
+     all-channel KISS port 9001, and has **`transmit = yes`**, so it has been on the air as
+     K3YLE-10 since then.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise
