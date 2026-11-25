@@ -8,5 +8,8 @@
 - `aprs-mapimage/` — Docker service that draws APRS map pictures for e-paper displays and dashboards.
   Start with `aprs-mapimage/README.md`.
 
+- `docs/` — the newsletter article about the Incident Feeder (`docs/article/`) and the club slide deck
+  (`docs/slides/`, open `index.html`).
+
 `HANDOFF.md` has the goals, architecture, decisions and open tasks; `CLAUDE.md` has the working
 rules for Claude Code.

@@ -1,0 +1,20 @@
+<section id="rules" data-transition="fade">
+<p class="eyebrow">WHAT GETS SENT, AND WHEN</p>
+<h2>Sent only when it needs sending</h2>
+<div class="split">
+<div class="col">
+<p class="coltitle">THE SENDER’S RULES</p>
+<div class="rule stage" style="--i:0"><h3>New, changed or killed</h3><p class="body">Sent on the next poll.</p></div>
+<div class="rule stage" style="--i:1"><h3>Unchanged</h3><p class="body">Repeated every 26 minutes, to stay alive on maps.</p></div>
+<div class="rule stage" style="--i:2"><h3>Below the minimum importance</h3><p class="body">Held back, and killed if it is already on the air.</p></div>
+</div>
+<div class="col">
+<p class="coltitle">IMPORTANCE LEVELS</p>
+<div class="level stage" style="--i:1"><p class="chip critical">Critical</p><p class="body">Tornado warning, entrapment, hazmat. Also a bulletin.</p></div>
+<div class="level stage" style="--i:2"><p class="chip high">High</p><p class="body">Building fire, rescue, a crash that closes the road</p></div>
+<div class="level stage" style="--i:3"><p class="chip medium">Medium</p><p class="body">Other fires, crashes, road closures, weather warnings</p></div>
+<div class="level stage" style="--i:4"><p class="chip low">Low</p><p class="body">Alarms, disabled vehicles, roadwork, weather watches</p></div>
+</div>
+</div>
+<aside>The 26-minute repeat keeps objects on maps without filling APRS-IS with copies. Every object is rated from its name and the wording of its text, and the operator picks the lowest level that is sent. Most of the traffic is roadwork, which is rated low, so raising the minimum to medium cuts the object count by about nine tenths. Three more rules run by themselves. An object whose source has been silent for two hours is taken off. When a county dispatch feed and a 511 feed report the same crash, only the more important one is sent. And anything critical also goes out as a bulletin, BLN1 to BLN3, so radios that show messages but no map still get it.</aside>
+</section>

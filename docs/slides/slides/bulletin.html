@@ -1,0 +1,13 @@
+<section id="bulletin" data-transition="fade">
+<p class="eyebrow">BULLETINS</p>
+<h2>Critical incidents also go out as a bulletin</h2>
+<p class="packet">K3YLE-15&gt;APRS,TCPIP*::BLN1     :Tornado Warning til 9:15PM</p>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">WHEN</p><h3>While it is critical</h3><p class="body">Tornado warning, entrapment, explosion, hazmat. Repeated every 26 minutes.</p></div>
+<div class="card stage" style="--i:1"><p class="tag">HOW MANY</p><h3>Three at most</h3><p class="body">BLN1 to BLN3. A slot is free again when its object ends.</p></div>
+<div class="card key stage" style="--i:2"><p class="tag">ON RF</p><h3>Also on RF</h3><p class="body">The radio script carries those for objects inside its own radius.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">For radios that show messages but no map. It ends when its object ends.</p>
+<aside>An object needs a map to be useful. A bulletin is plain text that almost every APRS radio and client shows in its message list, so the most serious incidents reach people who are not looking at a map. The text is the object’s own line. There is no kill for a bulletin: when the incident ends the feeder stops repeating it and the slot is reused. A fourth critical incident at the same time gets no bulletin. Stations running the radio script transmit only the bulletins for incidents inside their own radius. No critical incident has occurred since this was switched on, so it has been tested but not yet seen live.</aside>
+</section>

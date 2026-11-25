@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The APRS Incident Feeder: slides</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+body{margin:0;padding:24px;background:#1b1d22;color:#d9dce3;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+h1.top{font-size:20px;margin:0 0 4px;color:#fff} p.top{margin:0 0 24px;color:#a8adb8}
+.frame{width:960px;max-width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:6px;position:relative}
+.scale{width:1920px;height:1080px;transform:scale(.5);transform-origin:0 0}
+.scale>section{width:1920px;height:1080px;box-sizing:border-box;position:relative;overflow:hidden}
+.scale aside{display:none}
+x-shape{display:block} x-shape[kind="arrow-right"]{clip-path:polygon(0 30%,60% 30%,60% 0,100% 50%,60% 100%,60% 70%,0 70%)}
+.stage,.fade{animation:none!important}
+p.notes{width:960px;max-width:100%;margin:8px 0 32px;color:#b9bec9}
+@media (max-width:1010px){.frame{width:480px}.scale{transform:scale(.25)}p.notes{width:480px}}
+/* The APRS Incident Feeder in the GCARC theme: navy (#010066) slides, gold (#FFCC00) titles, white text. */
+section {
+  padding: 128px;
+  background: #010066;
+  color: #FFFFFF;
+  font-family: 'Libre Franklin', 'Franklin Gothic Medium', Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+h1, h2, h3 { font-family: 'Libre Franklin', 'Franklin Gothic Medium', Arial, sans-serif; margin: 0; }
+h1 { font-size: 112px; font-weight: 500; line-height: 1.05; color: #FFCC00; }
+h2 { font-size: 72px; font-weight: 500; line-height: 1.1; color: #FFCC00; margin-bottom: 56px; }
+h3 { font-size: 32px; font-weight: 600; line-height: 1.2; color: #FFFFFF; }
+p { font-size: 32px; line-height: 1.4; margin: 0; }
+
+.eyebrow { font-size: 24px; font-weight: 600; letter-spacing: 3px; color: #9DBDEB; margin-bottom: 24px; }
+.lead { font-size: 44px; line-height: 1.3; color: #FFFFFF; }
+.small { font-size: 24px; line-height: 1.4; color: #C9CEEF; }
+.spacer { flex: 1; }
+.mono { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+
+/* cover and close */
+.cover { justify-content: space-between; }
+.title { padding: 112px 128px 320px; text-align: center; }
+.banner { position: absolute; left: 123px; top: 817px; width: 1674px; height: 263px; object-fit: contain; }
+
+/* cards */
+.cards { display: flex; gap: 32px; align-items: stretch; }
+.card { flex: 1; background: #15158A; border: 2px solid #3A3AB0; border-radius: 16px; padding: 36px; display: flex; flex-direction: column; gap: 16px; }
+.card .body { font-size: 28px; line-height: 1.4; color: #E6E9FA; }
+.card .tag { font-size: 24px; font-weight: 600; letter-spacing: 2px; color: #FFCC00; }
+.card.key { background: #FFCC00; border-color: #FFCC00; }
+.card.key h3 { color: #010066; }
+.card.key .body { color: #010066; }
+.card.key .tag { color: #010066; }
+.arrow { flex: none; align-self: center; width: 56px; height: 28px; background: #FFCC00; }
+.row2 { margin-top: 32px; }
+
+/* table of sources */
+.sources { font-size: 28px; color: #FFFFFF; width: 100%; }
+.sources .head { background: #FFCC00; }
+.sources th { color: #010066; text-align: left; }
+.sources td { text-align: left; }
+.sources .alt { background: #15158A; }
+
+/* the packet line and its parts */
+.packet { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 24px; white-space: nowrap; background: #00003D; color: #FFFFFF; border: 2px solid #3A3AB0; padding: 28px 32px; border-radius: 16px; margin-bottom: 40px; }
+.part { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 24px; font-weight: 700; color: #FFCC00; white-space: nowrap; }
+.cmd { font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 24px; line-height: 1.5; white-space: nowrap; background: #00003D; color: #FFFFFF; border: 2px solid #3A3AB0; padding: 28px 32px; border-radius: 16px; margin-top: 40px; }
+
+/* rules and importance levels */
+.split { display: flex; gap: 64px; align-items: stretch; }
+.col { flex: 1; display: flex; flex-direction: column; gap: 24px; }
+.rule { background: #15158A; border: 2px solid #3A3AB0; border-radius: 16px; padding: 28px 32px; display: flex; flex-direction: column; gap: 8px; }
+.rule .body { font-size: 28px; line-height: 1.35; color: #E6E9FA; }
+.level { display: flex; gap: 24px; align-items: center; }
+.chip { flex: none; width: 200px; font-size: 24px; font-weight: 600; text-align: center; color: #010066; padding: 14px 0; border-radius: 12px; }
+.chip.critical { background: #C62828; color: #FFFFFF; }
+.chip.high { background: #ED7D31; }
+.chip.medium { background: #FFCC00; }
+.chip.low { background: #B4B8C8; }
+.level .body { font-size: 28px; line-height: 1.3; color: #E6E9FA; }
+.coltitle { font-size: 24px; font-weight: 600; letter-spacing: 2px; color: #9DBDEB; }
+
+/* arrival: a quiet fade, staged */
+@keyframes rise { from { opacity: 0; transform: translateY(16px); } }
+.stage { animation: rise 500ms ease-out both; animation-delay: calc(var(--i) * 120ms); }
+@keyframes fade { from { opacity: 0; } }
+.fade { animation: fade 500ms ease-out both; animation-delay: calc(var(--i) * 120ms); }
+
+</style></head><body>
+<h1 class="top">The APRS Incident Feeder</h1>
+<p class="top">A plain copy of the slide deck, one slide after another with its speaker notes. Generated from the files in this folder.</p>
+<div class="frame" id="slide-1"><div class="scale"><section id="cover" class="cover title" data-transition="fade">
+<div>
+<p class="eyebrow">APRS · K3YLE-15</p>
+<h1>The APRS Incident Feeder</h1>
+</div>
+<p class="lead">Local fires, crashes and storms on your APRS map</p>
+<p class="small">K3YLE · [Meeting date]</p>
+<img class="banner" src="banner.png" alt="Gloucester County Amateur Radio Club, W2MMD, banner with the club and ARRL badges">
+<aside>Introduce yourself and the one-line idea: a Raspberry Pi that turns public dispatch, traffic and weather feeds for our area into APRS objects. Everything shown tonight is running now under K3YLE-15.</aside>
+</section>
+</div></div><p class="notes"><b>1.</b> Introduce yourself and the one-line idea: a Raspberry Pi that turns public dispatch, traffic and weather feeds for our area into APRS objects. Everything shown tonight is running now under K3YLE-15.</p><div class="frame" id="slide-2"><div class="scale"><section id="what" data-transition="fade">
+<p class="eyebrow">WHAT IT DOES</p>
+<h2>Incidents show up as APRS objects, and leave when they clear</h2>
+<div class="spacer"></div>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">APPEARS</p><h3>A new incident becomes an object</h3><p class="body">A short name, a position, a symbol and one line of text.</p></div>
+<div class="card stage" style="--i:1"><p class="tag">CHANGES</p><h3>An update moves or rewrites it</h3><p class="body">A tracked storm moves across the map as the warning is updated.</p></div>
+<div class="card stage" style="--i:2"><p class="tag">CLEARS</p><h3>A kill packet takes it off your map</h3><p class="body">Nothing is left behind to linger after the incident is over.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">The feeder checks its sources every two minutes and carries about 180 objects on a typical afternoon.</p>
+<aside>Open aprs.fi around Montgomery, Chester and Bucks counties and you see more than stations: a fire-truck symbol for a building fire, a crash symbol for an accident, a tornado symbol following a warned storm. The kill packet matters: APRS objects have no expiry of their own, so the feeder always retires what it created.</aside>
+</section>
+</div></div><p class="notes"><b>2.</b> Open aprs.fi around Montgomery, Chester and Bucks counties and you see more than stations: a fire-truck symbol for a building fire, a crash symbol for an accident, a tornado symbol following a warned storm. The kill packet matters: APRS objects have no expiry of their own, so the feeder always retires what it created.</p><div class="frame" id="slide-3"><div class="scale"><section id="sources" data-transition="fade">
+<p class="eyebrow">WHERE THE DATA COMES FROM</p>
+<h2>Seven public sources, so far</h2>
+<div class="spacer"></div>
+<table class="sources">
+<tr class="head"><th style="width:38%">Source</th><th style="width:34%">What it gives</th><th>Position</th></tr>
+<tr><td>Montgomery County live CAD</td><td>Fire and traffic dispatches</td><td>Looked up from cross streets</td></tr>
+<tr class="alt"><td>Chester County WebCAD</td><td>Fire and traffic dispatches</td><td>Looked up from cross streets</td></tr>
+<tr><td>Bucks County 911 Incident Report</td><td>Fire and traffic dispatches</td><td>Supplied</td></tr>
+<tr class="alt"><td>511PA (PennDOT)</td><td>Crashes, closures, roadwork</td><td>Supplied</td></tr>
+<tr><td>511NJ</td><td>Crashes, closures, roadwork</td><td>Supplied</td></tr>
+<tr class="alt"><td>National Weather Service</td><td>Warnings, watches, tracked storms</td><td>Storm fix or warned area</td></tr>
+<tr><td>NWS river and tide gauges</td><td>Flooding and low water</td><td>Supplied</td></tr>
+</table>
+<div class="spacer"></div>
+<p class="small">Where a source gives no coordinates, the position is looked up and marked with a trailing “?” when it is approximate.</p>
+<aside>All seven are public. The newest is the river and tide gauges: a gauge shows only while it is flooding or at low water, and disappears when it returns to normal. Two county feeds give only cross streets and a township, so the feeder geocodes them and caches the answer. The weather source includes National Hurricane Center storms. Philadelphia has no live dispatch feed, but PennDOT and the weather service already cover the city.</aside>
+</section>
+</div></div><p class="notes"><b>3.</b> All seven are public. The newest is the river and tide gauges: a gauge shows only while it is flooding or at low water, and disappears when it returns to normal. Two county feeds give only cross streets and a township, so the feeder geocodes them and caches the answer. The weather source includes National Hurricane Center storms. Philadelphia has no live dispatch feed, but PennDOT and the weather service already cover the city.</p><div class="frame" id="slide-4"><div class="scale"><section id="how" data-transition="fade">
+<p class="eyebrow">HOW IT WORKS</p>
+<h2>Seven feeds, one queue</h2>
+<div class="spacer"></div>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">1</p><h3>Public sources</h3><p class="body">County dispatch, 511 traffic, weather, river gauges.</p></div>
+<x-shape kind="arrow-right" class="arrow fade" style="--i:1"></x-shape>
+<div class="card stage" style="--i:1"><p class="tag">2</p><h3>Seven feed scripts</h3><p class="body">Find a position, name the object, write its text, kill what has cleared.</p></div>
+<x-shape kind="arrow-right" class="arrow fade" style="--i:2"></x-shape>
+<div class="card key stage" style="--i:2"><p class="tag">3</p><h3>One sender</h3><p class="body">The only APRS-IS login. Sends what is new, changed or killed.</p></div>
+<x-shape kind="arrow-right" class="arrow fade" style="--i:3"></x-shape>
+<div class="card stage" style="--i:3"><p class="tag">4</p><h3>APRS-IS</h3><p class="body">As K3YLE-15, on aprs.fi and in your APRS client.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">Plain Python on a Raspberry Pi. Anyone can watch the live objects on a read-only map at aprs-incidents.phlm.sh; the operator’s own page fixes or deletes a wrong one and sets what is sent.</p>
+<aside>Each source has its own small script and none of them talks to APRS-IS. They hand their packets to a single sender, which holds the one connection and decides what actually goes out. That is what keeps the traffic down: before the sender existed, every script re-sent everything every two minutes. The sender also does three things on its own: it takes a source’s objects off after two hours of silence, sends only one object when a county feed and a 511 feed report the same crash, and sends a bulletin for anything rated critical.</aside>
+</section>
+</div></div><p class="notes"><b>4.</b> Each source has its own small script and none of them talks to APRS-IS. They hand their packets to a single sender, which holds the one connection and decides what actually goes out. That is what keeps the traffic down: before the sender existed, every script re-sent everything every two minutes. The sender also does three things on its own: it takes a source’s objects off after two hours of silence, sends only one object when a county feed and a 511 feed report the same crash, and sends a bulletin for anything rated critical.</p><div class="frame" id="slide-5"><div class="scale"><section id="object" data-transition="fade">
+<p class="eyebrow">EXAMPLE OBJECT</p>
+<h2>Example Packet</h2>
+<div class="spacer"></div>
+<p class="packet">;TRAFD81BU*241700z4014.24N\07528.65W'VEHICLE ACCIDENT TOWNSHIP LINE RD/BRIDGE ST (PERKIOMEN) @12:00</p>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="part">TRAFD81BU</p><p class="body">The name: a tag for the kind of incident, then a code that stays the same for its whole life.</p></div>
+<div class="card stage" style="--i:1"><p class="part">*</p><p class="body">Live. An underscore here instead kills the object.</p></div>
+<div class="card stage" style="--i:2"><p class="part">241700z</p><p class="body">Day and time, in UTC.</p></div>
+<div class="card stage" style="--i:3"><p class="part">4014.24N\07528.65W'</p><p class="body">Position, with the crash-site symbol.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">The rest is the call type, the cross streets, the township and the dispatch time. Fires start with FIRE, roadwork with WORK, and weather with the alert type and forecast office.</p>
+<aside>This packet is from the feeder’s log. The name is what lets the feeder update or kill the same object later, so it must not change from poll to poll. Where the source has an incident number the code comes from that; where it has none, it is a hash of the incident’s details.</aside>
+</section>
+</div></div><p class="notes"><b>5.</b> This packet is from the feeder’s log. The name is what lets the feeder update or kill the same object later, so it must not change from poll to poll. Where the source has an incident number the code comes from that; where it has none, it is a hash of the incident’s details.</p><div class="frame" id="slide-6"><div class="scale"><section id="rules" data-transition="fade">
+<p class="eyebrow">WHAT GETS SENT, AND WHEN</p>
+<h2>Sent only when it needs sending</h2>
+<div class="split">
+<div class="col">
+<p class="coltitle">THE SENDER’S RULES</p>
+<div class="rule stage" style="--i:0"><h3>New, changed or killed</h3><p class="body">Sent on the next poll.</p></div>
+<div class="rule stage" style="--i:1"><h3>Unchanged</h3><p class="body">Repeated every 26 minutes, to stay alive on maps.</p></div>
+<div class="rule stage" style="--i:2"><h3>Below the minimum importance</h3><p class="body">Held back, and killed if it is already on the air.</p></div>
+</div>
+<div class="col">
+<p class="coltitle">IMPORTANCE LEVELS</p>
+<div class="level stage" style="--i:1"><p class="chip critical">Critical</p><p class="body">Tornado warning, entrapment, hazmat. Also a bulletin.</p></div>
+<div class="level stage" style="--i:2"><p class="chip high">High</p><p class="body">Building fire, rescue, a crash that closes the road</p></div>
+<div class="level stage" style="--i:3"><p class="chip medium">Medium</p><p class="body">Other fires, crashes, road closures, weather warnings</p></div>
+<div class="level stage" style="--i:4"><p class="chip low">Low</p><p class="body">Alarms, disabled vehicles, roadwork, weather watches</p></div>
+</div>
+</div>
+<aside>The 26-minute repeat keeps objects on maps without filling APRS-IS with copies. Every object is rated from its name and the wording of its text, and the operator picks the lowest level that is sent. Most of the traffic is roadwork, which is rated low, so raising the minimum to medium cuts the object count by about nine tenths. Three more rules run by themselves. An object whose source has been silent for two hours is taken off. When a county dispatch feed and a 511 feed report the same crash, only the more important one is sent. And anything critical also goes out as a bulletin, BLN1 to BLN3, so radios that show messages but no map still get it.</aside>
+</section>
+</div></div><p class="notes"><b>6.</b> The 26-minute repeat keeps objects on maps without filling APRS-IS with copies. Every object is rated from its name and the wording of its text, and the operator picks the lowest level that is sent. Most of the traffic is roadwork, which is rated low, so raising the minimum to medium cuts the object count by about nine tenths. Three more rules run by themselves. An object whose source has been silent for two hours is taken off. When a county dispatch feed and a 511 feed report the same crash, only the more important one is sent. And anything critical also goes out as a bulletin, BLN1 to BLN3, so radios that show messages but no map still get it.</p><div class="frame" id="slide-7"><div class="scale"><section id="merge" data-transition="fade">
+<p class="eyebrow">ONE INCIDENT, ONE OBJECT</p>
+<h2>The same crash from two sources is sent once</h2>
+<div class="spacer"></div>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">SEEN TWICE</p><h3>Two feeds report it</h3><p class="body">A crash often arrives from county dispatch and from PennDOT or 511NJ.</p></div>
+<div class="card stage" style="--i:1"><p class="tag">MATCHED</p><h3>Within 0.3 miles</h3><p class="body">A traffic object from each kind of source, that close, is one incident.</p></div>
+<div class="card key stage" style="--i:2"><p class="tag">KEPT</p><h3>The more important</h3><p class="body">The county’s on a tie. The other is held back, or killed if on the air.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">Only traffic incidents are compared, and two reports from the same kind of source are never merged.</p>
+<aside>Without this, one crash on a state road shows as two objects a few yards apart: the county’s dispatch entry and the road agency’s. The sender compares a county feed against a 511 feed only, and only crashes and other traffic incidents, so roadwork never hides a crash. If the 511 report says the road is closed it rates higher and is the one kept. When the kept one ends, the other returns on its next poll if it is still active. This is new and has not yet been seen merging a real pair, so two separate crashes at one junction could be merged wrongly; the operator’s page shows what was held back and why.</aside>
+</section>
+</div></div><p class="notes"><b>7.</b> Without this, one crash on a state road shows as two objects a few yards apart: the county’s dispatch entry and the road agency’s. The sender compares a county feed against a 511 feed only, and only crashes and other traffic incidents, so roadwork never hides a crash. If the 511 report says the road is closed it rates higher and is the one kept. When the kept one ends, the other returns on its next poll if it is still active. This is new and has not yet been seen merging a real pair, so two separate crashes at one junction could be merged wrongly; the operator’s page shows what was held back and why.</p><div class="frame" id="slide-8"><div class="scale"><section id="bulletin" data-transition="fade">
+<p class="eyebrow">BULLETINS</p>
+<h2>Critical incidents also go out as a bulletin</h2>
+<p class="packet">K3YLE-15&gt;APRS,TCPIP*::BLN1     :Tornado Warning til 9:15PM</p>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">WHEN</p><h3>While it is critical</h3><p class="body">Tornado warning, entrapment, explosion, hazmat. Repeated every 26 minutes.</p></div>
+<div class="card stage" style="--i:1"><p class="tag">HOW MANY</p><h3>Three at most</h3><p class="body">BLN1 to BLN3. A slot is free again when its object ends.</p></div>
+<div class="card key stage" style="--i:2"><p class="tag">ON RF</p><h3>Also on RF</h3><p class="body">The radio script carries those for objects inside its own radius.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">For radios that show messages but no map. It ends when its object ends.</p>
+<aside>An object needs a map to be useful. A bulletin is plain text that almost every APRS radio and client shows in its message list, so the most serious incidents reach people who are not looking at a map. The text is the object’s own line. There is no kill for a bulletin: when the incident ends the feeder stops repeating it and the slot is reused. A fourth critical incident at the same time gets no bulletin. Stations running the radio script transmit only the bulletins for incidents inside their own radius. No critical incident has occurred since this was switched on, so it has been tested but not yet seen live.</aside>
+</section>
+</div></div><p class="notes"><b>8.</b> An object needs a map to be useful. A bulletin is plain text that almost every APRS radio and client shows in its message list, so the most serious incidents reach people who are not looking at a map. The text is the object’s own line. There is no kill for a bulletin: when the incident ends the feeder stops repeating it and the slot is reused. A fourth critical incident at the same time gets no bulletin. Stations running the radio script transmit only the bulletins for incidents inside their own radius. No critical incident has occurred since this was switched on, so it has been tested but not yet seen live.</p><div class="frame" id="slide-9"><div class="scale"><section id="radio" data-transition="fade">
+<p class="eyebrow">GETTING IT ON THE AIR</p>
+<h2>A script puts the objects near you on 144.39</h2>
+<div class="spacer"></div>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">ASKS</p><h3>Every two minutes</h3><p class="body">It asks the feeder for the objects within a chosen distance of your station.</p></div>
+<div class="card stage" style="--i:1"><p class="tag">PICKS</p><h3>The few that matter</h3><p class="body">Medium and up, ten objects at most, plus a bulletin for anything critical.</p></div>
+<div class="card key stage" style="--i:2"><p class="tag">SENDS</p><h3>Through your KISS TNC</h3><p class="body">Direwolf or a hardware TNC, under your own callsign, in third-party form.</p></div>
+</div>
+<p class="cmd">python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 \<br>    --lat 40.12 --lon -75.34 --kiss-tcp 127.0.0.1:8001</p>
+<div class="spacer"></div>
+<p class="small">It needs only Python and prints what it would send until you add --transmit. Add --auto to carry everything nearby, slowly, most important first.</p>
+<aside>Today the objects reach APRS-IS only, so you need an internet-connected client. This script is how a station in the area can carry them on RF. Third-party form keeps the feeder as the owner of the object and stops igates sending the packet back to the internet a second time. Within 25 miles of Norristown there are about 130 objects, which is why the script starts small. The --kiss-tcp address shown is where Direwolf listens by default; a TNC on a serial port uses --kiss-serial with its device name instead. It has keyed a real radio through Direwolf: two objects and their kills went out on 144.39. What is still unconfirmed is a second station decoding them. Bulletins for critical objects in your area are transmitted too, ahead of the objects. With --auto the script takes every object in its radius, whatever the level, and sends only two or three packets per poll from a queue: kills, then bulletins, then objects by importance, so a new fire jumps ahead of roadwork and the low ones go out only when nothing more important is waiting.</aside>
+</section>
+</div></div><p class="notes"><b>9.</b> Today the objects reach APRS-IS only, so you need an internet-connected client. This script is how a station in the area can carry them on RF. Third-party form keeps the feeder as the owner of the object and stops igates sending the packet back to the internet a second time. Within 25 miles of Norristown there are about 130 objects, which is why the script starts small. The --kiss-tcp address shown is where Direwolf listens by default; a TNC on a serial port uses --kiss-serial with its device name instead. It has keyed a real radio through Direwolf: two objects and their kills went out on 144.39. What is still unconfirmed is a second station decoding them. Bulletins for critical objects in your area are transmitted too, ahead of the objects. With --auto the script takes every object in its radius, whatever the level, and sends only two or three packets per poll from a queue: kills, then bulletins, then objects by importance, so a new fire jumps ahead of roadwork and the low ones go out only when nothing more important is waiting.</p><div class="frame" id="slide-10"><div class="scale"><section id="auto" data-transition="fade">
+<p class="eyebrow">AUTO MODE</p>
+<h2>How auto mode picks the next packet</h2>
+<svg aria-label="Flowchart: each poll the script asks for every object in the radius, then sends a waiting kill, else a bulletin that is new or was last sent 30 minutes ago, else the most important object that is new, changed or was last sent 30 minutes ago; it repeats until two packets have gone, and stays quiet when nothing is left." viewBox="0 0 1664 510" width="1664" height="510"><rect x="0" y="0" width="290" height="130" rx="16" fill="#15158A" stroke="#3A3AB0" stroke-width="3"/><text x="145.0" y="42" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">Each poll: ask for</text><text x="145.0" y="74" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">every object in</text><text x="145.0" y="106" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">the radius</text><rect x="366" y="0" width="270" height="130" rx="16" fill="none" stroke="#FFCC00" stroke-width="3"/><text x="501.0" y="58" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">A kill</text><text x="501.0" y="90" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">waiting?</text><rect x="706" y="0" width="270" height="130" rx="16" fill="none" stroke="#FFCC00" stroke-width="3"/><text x="841.0" y="42" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">A bulletin new,</text><text x="841.0" y="74" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">or last sent</text><text x="841.0" y="106" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">30 min ago?</text><rect x="1046" y="0" width="290" height="130" rx="16" fill="none" stroke="#FFCC00" stroke-width="3"/><text x="1191.0" y="42" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">An object new,</text><text x="1191.0" y="74" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">changed, or last</text><text x="1191.0" y="106" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">sent 30 min ago?</text><rect x="1410" y="0" width="254" height="130" rx="16" fill="#15158A" stroke="#3A3AB0" stroke-width="3"/><text x="1537.0" y="42" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">Nothing left:</text><text x="1537.0" y="74" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">quiet until</text><text x="1537.0" y="106" text-anchor="middle" font-size="26" font-weight="500" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">the next poll</text><rect x="366" y="250" width="270" height="150" rx="16" fill="#FFCC00" stroke="#FFCC00" stroke-width="3"/><text x="501.0" y="318" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">Send</text><text x="501.0" y="350" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">the kill</text><rect x="706" y="250" width="270" height="150" rx="16" fill="#FFCC00" stroke="#FFCC00" stroke-width="3"/><text x="841.0" y="318" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">Send</text><text x="841.0" y="350" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">the bulletin</text><rect x="1046" y="250" width="290" height="150" rx="16" fill="#FFCC00" stroke="#FFCC00" stroke-width="3"/><text x="1191.0" y="302" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">Send the most</text><text x="1191.0" y="334" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">important: critical,</text><text x="1191.0" y="366" text-anchor="middle" font-size="26" font-weight="600" fill="#010066" font-family="'Libre Franklin', Arial, sans-serif">high, medium, low</text><polyline points="290,65 366,65" fill="none" stroke="#9DBDEB" stroke-width="4"/><polygon points="366,65 348,55 348,75" fill="#9DBDEB"/><polyline points="636,65 706,65" fill="none" stroke="#9DBDEB" stroke-width="4"/><polygon points="706,65 688,55 688,75" fill="#9DBDEB"/><text x="671.0" y="51" text-anchor="middle" font-size="24" font-weight="600" fill="#9DBDEB" font-family="'Libre Franklin', Arial, sans-serif">no</text><polyline points="976,65 1046,65" fill="none" stroke="#9DBDEB" stroke-width="4"/><polygon points="1046,65 1028,55 1028,75" fill="#9DBDEB"/><text x="1011.0" y="51" text-anchor="middle" font-size="24" font-weight="600" fill="#9DBDEB" font-family="'Libre Franklin', Arial, sans-serif">no</text><polyline points="1336,65 1410,65" fill="none" stroke="#9DBDEB" stroke-width="4"/><polygon points="1410,65 1392,55 1392,75" fill="#9DBDEB"/><text x="1373.0" y="51" text-anchor="middle" font-size="24" font-weight="600" fill="#9DBDEB" font-family="'Libre Franklin', Arial, sans-serif">no</text><polyline points="501,130 501,250" fill="none" stroke="#FFCC00" stroke-width="4"/><polygon points="501,250 491,232 511,232" fill="#FFCC00"/><text x="539" y="198" text-anchor="middle" font-size="24" font-weight="600" fill="#FFCC00" font-family="'Libre Franklin', Arial, sans-serif">yes</text><line x1="501" y1="400" x2="501" y2="452" stroke="#9DBDEB" stroke-width="4"/><polyline points="841,130 841,250" fill="none" stroke="#FFCC00" stroke-width="4"/><polygon points="841,250 831,232 851,232" fill="#FFCC00"/><text x="879" y="198" text-anchor="middle" font-size="24" font-weight="600" fill="#FFCC00" font-family="'Libre Franklin', Arial, sans-serif">yes</text><line x1="841" y1="400" x2="841" y2="452" stroke="#9DBDEB" stroke-width="4"/><polyline points="1191,130 1191,250" fill="none" stroke="#FFCC00" stroke-width="4"/><polygon points="1191,250 1181,232 1201,232" fill="#FFCC00"/><text x="1229" y="198" text-anchor="middle" font-size="24" font-weight="600" fill="#FFCC00" font-family="'Libre Franklin', Arial, sans-serif">yes</text><line x1="1191" y1="400" x2="1191" y2="452" stroke="#9DBDEB" stroke-width="4"/><polyline points="1191,452 328,452 328,67" fill="none" stroke="#9DBDEB" stroke-width="4"/><polygon points="328,67 318,85 338,85" fill="#9DBDEB"/><text x="759.5" y="496" text-anchor="middle" font-size="26" fill="#FFFFFF" font-family="'Libre Franklin', Arial, sans-serif">After each packet, start again from the top, until 2 have gone this poll (--burst: 1 to 3)</text></svg>
+<div class="spacer"></div>
+<p class="small">Anything on the air is sent again every 30 minutes (--refresh). Within one level, a new or changed object goes before one of those repeats, and the one sent longest ago goes first. Low-importance objects go out only when nothing above them is waiting.</p>
+<aside>This is what --auto does every two minutes. The script asks the feeder for every object in its radius, at every level, and then works down this chart for each packet it is allowed to send. Kills come first so nothing this station put on the air is left behind. Bulletins for critical objects are next. Then objects, most important level first. Because only two or three packets go out per poll, the low-importance objects, mostly roadwork, trickle out in the gaps: around 25 miles of Norristown one evening the medium objects repeated every half hour and each low one got a turn about once an hour. A new building fire always goes ahead of whatever roadwork is still waiting. On a busy day some low objects may never be sent, which is the intent.</aside>
+</section>
+</div></div><p class="notes"><b>10.</b> This is what --auto does every two minutes. The script asks the feeder for every object in its radius, at every level, and then works down this chart for each packet it is allowed to send. Kills come first so nothing this station put on the air is left behind. Bulletins for critical objects are next. Then objects, most important level first. Because only two or three packets go out per poll, the low-importance objects, mostly roadwork, trickle out in the gaps: around 25 miles of Norristown one evening the medium objects repeated every half hour and each low one got a turn about once an hour. A new building fire always goes ahead of whatever roadwork is still waiting. On a busy day some low objects may never be sent, which is the intent.</p><div class="frame" id="slide-11"><div class="scale"><section id="close" class="cover">
+<div>
+<p class="eyebrow">TRY IT</p>
+<h2>Look for K3YLE-15 on aprs.fi</h2>
+<p class="lead">The objects are on the map now, around Montgomery, Chester and Bucks counties and into New Jersey.</p>
+</div>
+<p class="lead">Run an igate or digipeater? Carry your area’s incidents on RF.</p>
+<p class="small">Live map: aprs-incidents.phlm.sh · Talk to K3YLE for the script · aprs.fi/info/a/K3YLE-15</p>
+<aside>Close with the two asks: have a look at the map tonight, either on aprs.fi or on the feeder’s own read-only map, and if you run an igate or digipeater and want to try the RF script for your area, come and find me. The script has keyed my own radio; I am looking for a second station to confirm the packets decode.</aside>
+</section>
+</div></div><p class="notes"><b>11.</b> Close with the two asks: have a look at the map tonight, either on aprs.fi or on the feeder’s own read-only map, and if you run an igate or digipeater and want to try the RF script for your area, come and find me. The script has keyed my own radio; I am looking for a second station to confirm the packets decode.</p>
+</body></html>

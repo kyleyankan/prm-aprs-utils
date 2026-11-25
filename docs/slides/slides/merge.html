@@ -1,0 +1,13 @@
+<section id="merge" data-transition="fade">
+<p class="eyebrow">ONE INCIDENT, ONE OBJECT</p>
+<h2>The same crash from two sources is sent once</h2>
+<div class="spacer"></div>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">SEEN TWICE</p><h3>Two feeds report it</h3><p class="body">A crash often arrives from county dispatch and from PennDOT or 511NJ.</p></div>
+<div class="card stage" style="--i:1"><p class="tag">MATCHED</p><h3>Within 0.3 miles</h3><p class="body">A traffic object from each kind of source, that close, is one incident.</p></div>
+<div class="card key stage" style="--i:2"><p class="tag">KEPT</p><h3>The more important</h3><p class="body">The county’s on a tie. The other is held back, or killed if on the air.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">Only traffic incidents are compared, and two reports from the same kind of source are never merged.</p>
+<aside>Without this, one crash on a state road shows as two objects a few yards apart: the county’s dispatch entry and the road agency’s. The sender compares a county feed against a 511 feed only, and only crashes and other traffic incidents, so roadwork never hides a crash. If the 511 report says the road is closed it rates higher and is the one kept. When the kept one ends, the other returns on its next poll if it is still active. This is new and has not yet been seen merging a real pair, so two separate crashes at one junction could be merged wrongly; the operator’s page shows what was held back and why.</aside>
+</section>

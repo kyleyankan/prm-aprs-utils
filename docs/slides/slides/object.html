@@ -1,0 +1,15 @@
+<section id="object" data-transition="fade">
+<p class="eyebrow">EXAMPLE OBJECT</p>
+<h2>Example Packet</h2>
+<div class="spacer"></div>
+<p class="packet">;TRAFD81BU*241700z4014.24N\07528.65W'VEHICLE ACCIDENT TOWNSHIP LINE RD/BRIDGE ST (PERKIOMEN) @12:00</p>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="part">TRAFD81BU</p><p class="body">The name: a tag for the kind of incident, then a code that stays the same for its whole life.</p></div>
+<div class="card stage" style="--i:1"><p class="part">*</p><p class="body">Live. An underscore here instead kills the object.</p></div>
+<div class="card stage" style="--i:2"><p class="part">241700z</p><p class="body">Day and time, in UTC.</p></div>
+<div class="card stage" style="--i:3"><p class="part">4014.24N\07528.65W'</p><p class="body">Position, with the crash-site symbol.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">The rest is the call type, the cross streets, the township and the dispatch time. Fires start with FIRE, roadwork with WORK, and weather with the alert type and forecast office.</p>
+<aside>This packet is from the feeder’s log. The name is what lets the feeder update or kill the same object later, so it must not change from poll to poll. Where the source has an incident number the code comes from that; where it has none, it is a hash of the incident’s details.</aside>
+</section>

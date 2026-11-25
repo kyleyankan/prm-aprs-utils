@@ -1,0 +1,18 @@
+<section id="sources" data-transition="fade">
+<p class="eyebrow">WHERE THE DATA COMES FROM</p>
+<h2>Seven public sources, so far</h2>
+<div class="spacer"></div>
+<table class="sources">
+<tr class="head"><th style="width:38%">Source</th><th style="width:34%">What it gives</th><th>Position</th></tr>
+<tr><td>Montgomery County live CAD</td><td>Fire and traffic dispatches</td><td>Looked up from cross streets</td></tr>
+<tr class="alt"><td>Chester County WebCAD</td><td>Fire and traffic dispatches</td><td>Looked up from cross streets</td></tr>
+<tr><td>Bucks County 911 Incident Report</td><td>Fire and traffic dispatches</td><td>Supplied</td></tr>
+<tr class="alt"><td>511PA (PennDOT)</td><td>Crashes, closures, roadwork</td><td>Supplied</td></tr>
+<tr><td>511NJ</td><td>Crashes, closures, roadwork</td><td>Supplied</td></tr>
+<tr class="alt"><td>National Weather Service</td><td>Warnings, watches, tracked storms</td><td>Storm fix or warned area</td></tr>
+<tr><td>NWS river and tide gauges</td><td>Flooding and low water</td><td>Supplied</td></tr>
+</table>
+<div class="spacer"></div>
+<p class="small">Where a source gives no coordinates, the position is looked up and marked with a trailing “?” when it is approximate.</p>
+<aside>All seven are public. The newest is the river and tide gauges: a gauge shows only while it is flooding or at low water, and disappears when it returns to normal. Two county feeds give only cross streets and a township, so the feeder geocodes them and caches the answer. The weather source includes National Hurricane Center storms. Philadelphia has no live dispatch feed, but PennDOT and the weather service already cover the city.</aside>
+</section>

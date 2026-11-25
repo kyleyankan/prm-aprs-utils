@@ -1,0 +1,17 @@
+<section id="how" data-transition="fade">
+<p class="eyebrow">HOW IT WORKS</p>
+<h2>Seven feeds, one queue</h2>
+<div class="spacer"></div>
+<div class="cards">
+<div class="card stage" style="--i:0"><p class="tag">1</p><h3>Public sources</h3><p class="body">County dispatch, 511 traffic, weather, river gauges.</p></div>
+<x-shape kind="arrow-right" class="arrow fade" style="--i:1"></x-shape>
+<div class="card stage" style="--i:1"><p class="tag">2</p><h3>Seven feed scripts</h3><p class="body">Find a position, name the object, write its text, kill what has cleared.</p></div>
+<x-shape kind="arrow-right" class="arrow fade" style="--i:2"></x-shape>
+<div class="card key stage" style="--i:2"><p class="tag">3</p><h3>One sender</h3><p class="body">The only APRS-IS login. Sends what is new, changed or killed.</p></div>
+<x-shape kind="arrow-right" class="arrow fade" style="--i:3"></x-shape>
+<div class="card stage" style="--i:3"><p class="tag">4</p><h3>APRS-IS</h3><p class="body">As K3YLE-15, on aprs.fi and in your APRS client.</p></div>
+</div>
+<div class="spacer"></div>
+<p class="small">Plain Python on a Raspberry Pi. Anyone can watch the live objects on a read-only map at aprs-incidents.phlm.sh; the operator’s own page fixes or deletes a wrong one and sets what is sent.</p>
+<aside>Each source has its own small script and none of them talks to APRS-IS. They hand their packets to a single sender, which holds the one connection and decides what actually goes out. That is what keeps the traffic down: before the sender existed, every script re-sent everything every two minutes. The sender also does three things on its own: it takes a source’s objects off after two hours of silence, sends only one object when a county feed and a 511 feed report the same crash, and sends a bulletin for anything rated critical.</aside>
+</section>
