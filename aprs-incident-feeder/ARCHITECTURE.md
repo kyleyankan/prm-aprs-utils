@@ -86,7 +86,7 @@ flowchart LR
 Everything to the left of the outbox decides **what should be on the air**. The sender alone
 decides **what needs transmitting right now**, and it holds back anything rated below the minimum
 level you chose on the web map. Radios do not get packets pushed to them: a program beside each
-radio (`aprs-radio/aprs_radio.py`, run by that station's operator) asks the web service for the
+radio (`aprs-incident-rf-bridge/aprs_radio.py`, run by that station's operator) asks the web service for the
 packets near it and sends them through a KISS TNC.
 
 ## One poll, step by step

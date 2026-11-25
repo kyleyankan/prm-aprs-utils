@@ -2,11 +2,11 @@
 
 The objects on this map go to the internet side of APRS. They reach radios in the field only
 where a licensed operator transmits them. If you have a radio and a TNC, you can be that station
-for your area with a small program called `aprs-radio`.
+for your area with a small program called `aprs-incident-rf-bridge`.
 
 ## What it does
 
-`aprs-radio` asks this feeder for the objects within a radius of your position, keeps the few
+`aprs-incident-rf-bridge` asks this feeder for the objects within a radius of your position, keeps the few
 that matter most, and transmits them through your TNC under your callsign. It sends an object
 when it is new or changed, repeats it every 30 minutes, and sends the kill when it ends.
 
@@ -24,9 +24,9 @@ per poll, eight seconds apart. A shared 1200 baud channel fills quickly.
 
 ## Get the program
 
-It is one file, in the `aprs-radio` folder of the project's repository:
+It is one file, in the `aprs-incident-rf-bridge` folder of the project's repository:
 
-[github.com/kyleyankan/prm-aprs-utils](https://github.com/kyleyankan/prm-aprs-utils/tree/main/aprs-radio)
+[github.com/kyleyankan/prm-aprs-utils](https://github.com/kyleyankan/prm-aprs-utils/tree/main/aprs-incident-rf-bridge)
 
 The folder's README explains every option, and its INSTALL guide shows how to run it as a service
 that starts when the computer boots.

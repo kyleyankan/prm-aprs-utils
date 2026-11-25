@@ -29,4 +29,4 @@ cd tests && python3 -m unittest test_priority test_send test_web test_water
 Without `SEND=1` in `aprs.env` nothing is transmitted: the packets are only printed.
 
 The script that puts these objects on the air through a radio is a separate project,
-[`../aprs-radio/`](../aprs-radio/).
+[`../aprs-incident-rf-bridge/`](../aprs-incident-rf-bridge/).

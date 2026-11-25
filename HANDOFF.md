@@ -312,6 +312,14 @@ file that say `aprs-pi/` mean the same folder.
      `http://127.0.0.1:8080`, a centre the owner chose with a 6.2 mile (10 km) radius, `auto = yes`,
      Direwolf channel 0 on `127.0.0.1:8001`, and **`transmit = no`**: it logs what it would send
      and keys nothing. The owner turns transmitting on.
+   - **Renamed 2026-11-25**: the folder `aprs-radio/` is now `aprs-incident-rf-bridge/`, and so
+     are the systemd service, `/opt/aprs-incident-rf-bridge`, `/etc/aprs-incident-rf-bridge/`
+     (settings file `aprs-incident-rf-bridge.conf`) and `/var/lib/aprs-incident-rf-bridge`. The
+     script is still `aprs_radio.py` and its User-Agent is still `aprs-radio/<version>`. Entries
+     above this one use the old names. `install.sh` moves an install made under the old name
+     (settings, the sent-list, enabled and running state) and removes the old service; that was
+     tried in a Debian 12 container and then used on the Pi, where the service now runs under
+     the new name with the same settings, still `transmit = no`.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

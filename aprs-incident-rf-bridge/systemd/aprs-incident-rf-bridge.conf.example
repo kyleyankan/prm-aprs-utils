@@ -1,8 +1,8 @@
-# Settings for the aprs-radio service.
+# Settings for the aprs-incident-rf-bridge service.
 #
 # One setting per line: name = value. Lines starting with # are ignored.
-# After changing this file:  sudo systemctl restart aprs-radio
-# Every option of aprs_radio.py can be set here; see /opt/aprs-radio/README.md.
+# After changing this file:  sudo systemctl restart aprs-incident-rf-bridge
+# Every option of aprs_radio.py can be set here; see /opt/aprs-incident-rf-bridge/README.md.
 
 # ---- Required -----------------------------------------------------------------
 

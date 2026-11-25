@@ -113,7 +113,7 @@ Packets for radios (which of our objects are near a point)
      form keeps K3YLE-15 as the sender and igates do not pass it back.
      This only lists packets. The radio's own program decides what to transmit and how often.
      With SEND=0 the list is built from the scripts' state files and has no kills.
-     Other operators run aprs-radio/aprs_radio.py against this address to put the objects on RF.
+     Other operators run aprs-incident-rf-bridge/aprs_radio.py against this address to put the objects on RF.
 
 Radio gateways (who is asking for packets)
      The web map has a "Radio gateways" layer: every station that asked /api/packets in the last
@@ -128,7 +128,7 @@ Radio gateways (who is asking for packets)
 
 Public documentation (/docs)
      The read-only map links to "Documentation": pages for the public about where the data comes
-     from, how it is processed, and how to deploy it with a radio using aprs-radio.
+     from, how it is processed, and how to deploy it with a radio using aprs-incident-rf-bridge.
      Each page is a text file in the public_docs folder beside the scripts, written in Markdown
      (# headings, lists, tables, links, ``` code blocks). To add a page, put a .md file there;
      to change one, edit the file. No restart is needed.

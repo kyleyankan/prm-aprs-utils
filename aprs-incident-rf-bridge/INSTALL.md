@@ -1,4 +1,4 @@
-# Installing aprs-radio as a service
+# Installing aprs-incident-rf-bridge as a service
 
 This sets `aprs_radio.py` up as a systemd service on Linux, so it starts at boot, restarts after a
 network drop, and keeps its settings in one file. If you only want to try the script, the
@@ -24,7 +24,7 @@ for, and your internet address. The feeder keeps those for 7 days and shows them
 
 ## Install
 
-Get the `aprs-radio` folder onto the machine (clone the repository or copy the folder), then from
+Get the `aprs-incident-rf-bridge` folder onto the machine (clone the repository or copy the folder), then from
 inside it:
 
 ```sh
@@ -35,9 +35,9 @@ The installer:
 
 | Puts | Where |
 |---|---|
-| The script, this guide and the README | `/opt/aprs-radio/` |
-| Your settings (created from the example the first time) | `/etc/aprs-radio/aprs-radio.conf` |
-| The service | `/etc/systemd/system/aprs-radio.service` |
+| The script, this guide and the README | `/opt/aprs-incident-rf-bridge/` |
+| Your settings (created from the example the first time) | `/etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf` |
+| The service | `/etc/systemd/system/aprs-incident-rf-bridge.service` |
 
 It does not start the service, and it never overwrites a settings file that is already there.
 
@@ -46,7 +46,7 @@ It does not start the service, and it never overwrites a settings file that is a
 Open the settings file:
 
 ```sh
-sudo nano /etc/aprs-radio/aprs-radio.conf
+sudo nano /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf
 ```
 
 Each line is `name = value`. Lines starting with `#` are ignored. Set these first:
@@ -84,11 +84,11 @@ each one does. Options that are on or off take `yes` or `no`.
 With `transmit = no` the service only writes to its log what it would send. Start it and watch:
 
 ```sh
-sudo systemctl start aprs-radio
+sudo systemctl start aprs-incident-rf-bridge
 ```
 
 ```sh
-journalctl -u aprs-radio -f
+journalctl -u aprs-incident-rf-bridge -f
 ```
 
 You should see something like this:
@@ -113,7 +113,7 @@ transmit = yes
 ```
 
 ```sh
-sudo systemctl restart aprs-radio
+sudo systemctl restart aprs-incident-rf-bridge
 ```
 
 The log lines now start with the reason (`new`, `changed`, `refresh`, `kill`) with no "(not
@@ -122,21 +122,21 @@ transmitted)" in front, and your radio keys up for each one.
 ## Start it at every boot
 
 ```sh
-sudo systemctl enable aprs-radio
+sudo systemctl enable aprs-incident-rf-bridge
 ```
 
 ## Day to day
 
 | To | Run |
 |---|---|
-| See whether it is running | `systemctl status aprs-radio` |
-| Follow the log | `journalctl -u aprs-radio -f` |
-| See today's log | `journalctl -u aprs-radio --since today` |
-| Apply a settings change | `sudo systemctl restart aprs-radio` |
-| Stop it | `sudo systemctl stop aprs-radio` |
-| Stop it starting at boot | `sudo systemctl disable aprs-radio` |
+| See whether it is running | `systemctl status aprs-incident-rf-bridge` |
+| Follow the log | `journalctl -u aprs-incident-rf-bridge -f` |
+| See today's log | `journalctl -u aprs-incident-rf-bridge --since today` |
+| Apply a settings change | `sudo systemctl restart aprs-incident-rf-bridge` |
+| Stop it | `sudo systemctl stop aprs-incident-rf-bridge` |
+| Stop it starting at boot | `sudo systemctl disable aprs-incident-rf-bridge` |
 
-What the service has transmitted is remembered in `/var/lib/aprs-radio/state.json`, so a restart or
+What the service has transmitted is remembered in `/var/lib/aprs-incident-rf-bridge/state.json`, so a restart or
 reboot does not send everything again.
 
 ## Taking your objects off the air
@@ -146,11 +146,11 @@ time them out. To take them off at once, stop the service and run the script one
 limit of zero objects. It transmits a kill for each object it still carries and then exits:
 
 ```sh
-sudo systemctl stop aprs-radio
+sudo systemctl stop aprs-incident-rf-bridge
 ```
 
 ```sh
-sudo python3 /opt/aprs-radio/aprs_radio.py --config /etc/aprs-radio/aprs-radio.conf --state-file /var/lib/aprs-radio/state.json --max-objects 0 --once --transmit
+sudo python3 /opt/aprs-incident-rf-bridge/aprs_radio.py --config /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf --state-file /var/lib/aprs-incident-rf-bridge/state.json --max-objects 0 --once --transmit
 ```
 
 This command transmits. It uses your settings file for the callsign and TNC.
@@ -181,10 +181,10 @@ Your settings are kept, and a running service is restarted on the new version.
 ## Removing it
 
 ```sh
-sudo sh /opt/aprs-radio/uninstall.sh
+sudo sh /opt/aprs-incident-rf-bridge/uninstall.sh
 ```
 
-This stops and removes the service and `/opt/aprs-radio`, and keeps your settings and the record of
+This stops and removes the service and `/opt/aprs-incident-rf-bridge`, and keeps your settings and the record of
 what was sent. Add `--purge` to remove those as well. Take your objects off the air first (above) if
 any are still showing.
 
@@ -193,7 +193,7 @@ any are still showing.
 **The service fails straight away.** Read the reason:
 
 ```sh
-journalctl -u aprs-radio -n 20
+journalctl -u aprs-incident-rf-bridge -n 20
 ```
 
 - `use your own callsign, not N0CALL`: the settings file still has the example callsign.
@@ -213,11 +213,11 @@ ls -l /dev/ttyUSB0
 ```
 
 ```sh
-systemctl show aprs-radio -p SupplementaryGroups
+systemctl show aprs-incident-rf-bridge -p SupplementaryGroups
 ```
 
 If the port belongs to a different group, create
-`/etc/systemd/system/aprs-radio.service.d/serial.conf` containing these two lines, with your group's
+`/etc/systemd/system/aprs-incident-rf-bridge.service.d/serial.conf` containing these two lines, with your group's
 name, then run `sudo systemctl daemon-reload` and restart the service:
 
 ```ini

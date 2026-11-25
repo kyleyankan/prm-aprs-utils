@@ -10,7 +10,7 @@ with the code.
 | Folder | What it is | Where it runs |
 |---|---|---|
 | `aprs-incident-feeder/` | Scripts that turn county dispatch, 511 traffic, NWS weather and river gauge feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
-| `aprs-radio/` | One stand-alone script, `aprs_radio.py`, that other operators run: it polls the Pi's `/api/packets` and transmits the objects near them through their own KISS TNC | Anyone's machine beside a radio; nothing of ours runs it |
+| `aprs-incident-rf-bridge/` | One stand-alone script, `aprs_radio.py`, that other operators run: it polls the Pi's `/api/packets` and transmits the objects near them through their own KISS TNC | Anyone's machine beside a radio; nothing of ours runs it |
 | `aprs-mapimage/` | A stand-alone Docker service that listens to APRS-IS and draws map pictures (PNG/BMP) for e-paper and dashboards, with a builder web page and saved presets | Docker; live at https://aprs.phlm.sh/ (host port 8083 -> container 8080) |
 
 ## Ground rules
@@ -67,10 +67,10 @@ cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list   # each object: l
 cd tests && python3 -m unittest test_priority test_send test_web test_water  # rating, sender, web API and river feed tests (fake servers on localhost)
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
-# aprs-radio (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
-python3 aprs-radio/aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
-cd aprs-radio/tests && python3 -m unittest test_radio
-sudo sh aprs-radio/systemd/install.sh   # on a Linux machine: install it as a systemd service (settings in /etc/aprs-radio/aprs-radio.conf, see aprs-radio/INSTALL.md)
+# aprs-incident-rf-bridge (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
+python3 aprs-incident-rf-bridge/aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+cd aprs-incident-rf-bridge/tests && python3 -m unittest test_radio
+sudo sh aprs-incident-rf-bridge/systemd/install.sh   # on a Linux machine: install it as a systemd service (settings in /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf, see aprs-incident-rf-bridge/INSTALL.md)
 
 # aprs-mapimage
 cd aprs-mapimage && cp .env.example .env && docker compose up -d --build

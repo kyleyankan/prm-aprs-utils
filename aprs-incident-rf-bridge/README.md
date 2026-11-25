@@ -1,4 +1,4 @@
-# aprs-radio: put the Incident Feeder's objects on the air
+# aprs-incident-rf-bridge: put the Incident Feeder's objects on the air
 
 `aprs_radio.py` is for a licensed operator with a radio and a KISS TNC. It asks an Incident Feeder
 for the objects near you, picks the ones worth sending, and transmits them through your TNC under
@@ -156,7 +156,7 @@ What was transmitted is kept in `aprs_radio_state.json` (`--state-file`), so sto
 does not send everything again.
 
 **As a service on Linux.** `systemd/install.sh` installs the script as a systemd service that starts
-at boot, restarts after a crash and reads its settings from `/etc/aprs-radio/aprs-radio.conf`.
+at boot, restarts after a crash and reads its settings from `/etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf`.
 [INSTALL.md](INSTALL.md) walks through installing and configuring it:
 
 ```sh
@@ -166,7 +166,7 @@ sudo sh systemd/install.sh
 **Settings in a file.** `--config FILE` reads the options from a file instead of the command line,
 one `name = value` per line, named like the options without the dashes (`max-objects = 5`). On/off
 options take `yes` or `no`. Anything also given on the command line wins. The service uses this;
-`systemd/aprs-radio.conf.example` is a commented starting point.
+`systemd/aprs-incident-rf-bridge.conf.example` is a commented starting point.
 
 If you stop it for good while objects are on the air, they are not killed; they fade from maps as
 clients time them out. To take them off at once, run it one more time with the same settings and

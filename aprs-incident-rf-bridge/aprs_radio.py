@@ -3,7 +3,7 @@
 
   python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34
   ... add --transmit to really send; without it the packets are only printed.
-  ... or keep the settings in a file: --config aprs-radio.conf (see systemd/aprs-radio.conf.example).
+  ... or keep the settings in a file: --config FILE (see systemd/aprs-incident-rf-bridge.conf.example).
       INSTALL.md shows how to run it as a systemd service.
 
 Every --poll seconds (default 120) it asks the feeder's /api/packets for the objects within
