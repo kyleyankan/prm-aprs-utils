@@ -3,10 +3,29 @@
 #
 #     sudo sh systemd/install.sh
 #
-# It copies the script to /opt/aprs-incident-rf-bridge, creates /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf if there
-# is none, and installs the service. It never overwrites your settings, and it does not
-# start the service: you start it once the settings are yours. Safe to run again to update.
+# It copies the script to /opt/aprs-incident-rf-bridge and installs the service. On a first
+# install it asks for your callsign, your position and a radius, and writes them to
+# /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf. To answer ahead of time (or when
+# there is nobody to ask, as in a script), give them as options:
+#
+#     sudo sh systemd/install.sh --callsign W3XYZ-10 --lat 40.00 --lon -75.00 --radius 10
+#
+# The radius is in miles; write 16km for kilometres. It never overwrites settings that are
+# already there, and it does not start the service: you start it yourself, and it does not
+# transmit until you set transmit = yes. Safe to run again to update.
 set -eu
+
+ASK_CALLSIGN="" ASK_LAT="" ASK_LON="" ASK_RADIUS=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --callsign) ASK_CALLSIGN="${2:-}"; shift 2 ;;
+        --lat)      ASK_LAT="${2:-}"; shift 2 ;;
+        --lon)      ASK_LON="${2:-}"; shift 2 ;;
+        --radius|--miles) ASK_RADIUS="${2:-}"; shift 2 ;;
+        -h|--help)  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) printf 'install.sh: unknown option %s (see --help)\n' "$1" >&2; exit 1 ;;
+    esac
+done
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 APP_DIR=/opt/aprs-incident-rf-bridge
@@ -62,13 +81,86 @@ done
 install -m 644 "$HERE/systemd/aprs-incident-rf-bridge.conf.example" "$APP_DIR/aprs-incident-rf-bridge.conf.example"
 install -m 755 "$HERE/systemd/uninstall.sh" "$APP_DIR/uninstall.sh"
 
+# Check one answer with the script's own rules. Prints the value to store (the radius in
+# miles, the callsign in capitals) or, on a mistake, a line starting with "!" that says why.
+check() {
+    python3 - "$HERE" "$1" "$2" <<'PY'
+import contextlib, io, re, sys
+sys.path.insert(0, sys.argv[1])
+import aprs_radio as R
+what, value = sys.argv[2], sys.argv[3].strip()
+good = {"callsign": "W3XYZ-10", "lat": "40", "lon": "-75", "miles": "10"}
+try:
+    if what == "miles":
+        m = re.fullmatch(r"([0-9.]+)\s*(km|kilometres|kilometers|mi|miles)?", value.lower())
+        if not m:
+            raise ValueError("write a number of miles, or kilometres as 16km")
+        number = float(m.group(1)) * (0.621371 if (m.group(2) or "").startswith("k") else 1)
+        value = f"{number:.1f}".rstrip("0").rstrip(".")
+    elif what in ("lat", "lon"):
+        float(value)
+    good[what] = value
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        try:
+            a = R.parse_args([f"--{k}={v}" for k, v in good.items()])
+        except SystemExit:
+            raise ValueError(err.getvalue().strip().splitlines()[-1].split("error: ")[-1])
+    print(a.callsign if what == "callsign" else value)
+except ValueError as e:
+    print("! " + (str(e) if "could not convert" not in str(e) else "write a number in decimal degrees, such as 40.00 or -75.00"))
+PY
+}
+
+# Take an answer from its option, or ask for it. Sets ANSWER; empty when there is nobody to ask.
+answer() {      # answer <what> <value from the option> <question>
+    ANSWER=""
+    value="$2"
+    while :; do
+        if [ -z "$value" ]; then
+            [ -t 0 ] || return 0
+            printf '    %s ' "$3"
+            read -r value || return 0
+            [ -n "$value" ] || continue
+        fi
+        result="$(check "$1" "$value")"
+        case "$result" in
+            "!"*) say "      ${result#! }"
+                  [ -t 0 ] || fail "$1: ${result#! }"
+                  value="" ;;
+            *)    ANSWER="$result"; return 0 ;;
+        esac
+    done
+}
+
 say "==> Settings in $CONF"
 install -d -m 755 "$CONF_DIR"
+CONFIGURED=no
 if [ -f "$CONF" ]; then
     say "    kept your existing settings"
+    CONFIGURED=yes
 else
+    if [ -t 0 ]; then
+        say "    Three questions. Your station transmits under this callsign, and asks the feeder for"
+        say "    the objects within the radius of this position."
+    fi
+    answer callsign "$ASK_CALLSIGN" "Your callsign and SSID (for example W3XYZ-10):"; SET_CALLSIGN="$ANSWER"
+    answer lat "$ASK_LAT" "Latitude of the centre of your area, in decimal degrees (north is positive):"; SET_LAT="$ANSWER"
+    answer lon "$ASK_LON" "Longitude, in decimal degrees (west is negative, for example -75.00):"; SET_LON="$ANSWER"
+    answer miles "$ASK_RADIUS" "Radius around that point, in miles (or kilometres as 16km):"; SET_MILES="$ANSWER"
     install -m 644 "$HERE/systemd/aprs-incident-rf-bridge.conf.example" "$CONF"
-    say "    created from the example; edit it before starting the service"
+    if [ -n "$SET_CALLSIGN" ] && [ -n "$SET_LAT" ] && [ -n "$SET_LON" ] && [ -n "$SET_MILES" ]; then
+        sed -i -e "s|^callsign *=.*|callsign = $SET_CALLSIGN|" -e "s|^lat *=.*|lat = $SET_LAT|" \
+               -e "s|^lon *=.*|lon = $SET_LON|" -e "s|^miles *=.*|miles = $SET_MILES|" "$CONF"
+        for want in "callsign = $SET_CALLSIGN" "lat = $SET_LAT" "lon = $SET_LON" "miles = $SET_MILES"; do
+            grep -qxF "$want" "$CONF" || fail "could not write \"$want\" to $CONF; edit that file by hand"
+        done
+        say "    written: $SET_CALLSIGN at $SET_LAT, $SET_LON, $SET_MILES miles. Transmitting is off (transmit = no)."
+        CONFIGURED=yes
+    else
+        say "    created without a callsign or position, because there was nobody to ask."
+        say "    Edit it before starting the service, or run this again with --callsign, --lat, --lon and --radius."
+    fi
 fi
 
 say "==> Service in $UNIT"
@@ -110,8 +202,13 @@ fi
 
 say ""
 say "Installed. Next:"
-say "  1. Edit the settings:      sudo nano $CONF"
-say "     (your callsign, position, TNC; leave transmit = no for now)"
+if [ "$CONFIGURED" = yes ]; then
+    say "  1. Check the settings:     sudo nano $CONF"
+    say "     (your TNC is assumed to be Direwolf on this machine; leave transmit = no for now)"
+else
+    say "  1. Edit the settings:      sudo nano $CONF"
+    say "     (your callsign, position, TNC; leave transmit = no for now)"
+fi
 say "  2. Start it and watch:     sudo systemctl start aprs-incident-rf-bridge && journalctl -u aprs-incident-rf-bridge -f"
 say "  3. When the list looks right, set transmit = yes and:  sudo systemctl restart aprs-incident-rf-bridge"
 say "  4. Start it at every boot: sudo systemctl enable aprs-incident-rf-bridge"

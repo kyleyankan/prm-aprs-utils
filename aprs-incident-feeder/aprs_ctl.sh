@@ -535,7 +535,7 @@ GOOGLE_MAPS_API_KEY=""            # montco + chesco (Google Geocoding)
 PENNDOT_RCRS_USER=""              # pa511
 PENNDOT_RCRS_PASSWORD=""
 NWS_CONTACT=""                    # nws: your e-mail or website (NWS asks clients to identify themselves)
-APRS_HOME=""                      # nws: centre of your area as "lat,lon" (blank = Norristown, PA)
+APRS_HOME=""                      # REQUIRED for nws and the map: centre of your area as "lat,lon", e.g. "40.00,-75.00"
 
 # Web map: other people's APRS objects/stations heard around APRS_HOME (receive only)
 #APRS_LISTEN=0                    # uncomment to switch the listener off

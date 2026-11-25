@@ -24,11 +24,25 @@ for, and your internet address. The feeder keeps those for 7 days and shows them
 
 ## Install
 
-Get the `aprs-incident-rf-bridge` folder onto the machine (clone the repository or copy the folder), then from
-inside it:
+Get the `aprs-incident-rf-bridge` folder onto the machine (clone the repository or copy the folder),
+then from inside it:
 
 ```sh
 sudo sh systemd/install.sh
+```
+
+On a first install it asks three things and checks each answer:
+
+| Question | What to give |
+|---|---|
+| Your callsign and SSID | The station that will transmit, for example `W3XYZ-10` |
+| Latitude and longitude | The centre of the area you want to cover, in decimal degrees. West and south are negative. |
+| Radius | How far around that point, in miles. Write `16km` to give it in kilometres. |
+
+To answer ahead of time, or when installing from a script with nobody to ask, give them as options:
+
+```sh
+sudo sh systemd/install.sh --callsign W3XYZ-10 --lat 40.00 --lon -75.00 --radius 10
 ```
 
 The installer:
@@ -36,10 +50,12 @@ The installer:
 | Puts | Where |
 |---|---|
 | The script, this guide and the README | `/opt/aprs-incident-rf-bridge/` |
-| Your settings (created from the example the first time) | `/etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf` |
+| Your settings, with your answers in them | `/etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf` |
 | The service | `/etc/systemd/system/aprs-incident-rf-bridge.service` |
 
-It does not start the service, and it never overwrites a settings file that is already there.
+It does not start the service, it leaves transmitting off, and it never overwrites a settings file
+that is already there. There is no built-in callsign or position: until those are set the service
+refuses to start.
 
 ## Configure
 
@@ -49,11 +65,12 @@ Open the settings file:
 sudo nano /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf
 ```
 
-Each line is `name = value`. Lines starting with `#` are ignored. Set these first:
+Each line is `name = value`. Lines starting with `#` are ignored. The installer has already filled
+in the first four; change them here whenever you need to:
 
-| Setting | What to put |
+| Setting | What it is |
 |---|---|
-| `callsign` | Your callsign and SSID, e.g. `W3XYZ-10`. The service refuses to start while it is `N0CALL`. |
+| `callsign` | Your callsign and SSID, e.g. `W3XYZ-10`. The service refuses to start without one, or with `N0CALL`. |
 | `lat`, `lon` | The centre of your area in decimal degrees. West and south are negative. |
 | `miles` | The radius around that point |
 | `transmit` | Leave it at `no` for now |
@@ -97,9 +114,9 @@ You should see something like this:
 
 ```
 # aprs_radio 1.4 for W3XYZ-10 (print-only: nothing is transmitted)
-# asking https://aprs-incidents.phlm.sh/api/packets?lat=40.12000&lon=-75.34000&miles=10&min=medium&via=W3XYZ-10
+# asking https://aprs-incidents.phlm.sh/api/packets?lat=40.00000&lon=-75.00000&miles=10&min=medium&via=W3XYZ-10
 # every 120s; at most 10 objects, 6 packets per poll, 8s apart; refresh every 30 min
-(not transmitted) new: W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4007.80N/07519.80WdBUILDING FIRE MAIN ST/OAK ST
+(not transmitted) new: W3XYZ-10>APZIFD:}W3FED-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4000.60N/07500.90WdBUILDING FIRE MAIN ST/OAK ST
 # 1 listed, 1 carried by this station, 1 would be sent
 ```
 
@@ -198,7 +215,9 @@ any are still showing.
 journalctl -u aprs-incident-rf-bridge -n 20
 ```
 
-- `use your own callsign, not N0CALL`: the settings file still has the example callsign.
+- `the following arguments are required: --callsign, --lat, --lon`: the settings file has no callsign
+  or position yet. Fill them in, or remove the file and run the installer again to be asked.
+- `use your own callsign, not N0CALL`: put your own callsign in the settings file.
 - `there is no setting called ...`: a misspelt name; the line number is in the message.
 - `... must be yes or no`: an on/off setting has some other value.
 

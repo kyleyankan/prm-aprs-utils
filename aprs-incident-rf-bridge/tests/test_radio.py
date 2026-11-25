@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import aprs_radio as R
 
-ME, FEEDER = "W3XYZ-10", "K3YLE-15"
+ME, FEEDER = "W3XYZ-10", "W3FED-15"
 
 
 def rf(name, text="BUILDING FIRE MAIN ST", live=True, stamp="241500z", lat="4007.20N"):

@@ -5,15 +5,15 @@
 # Every option of aprs_radio.py can be set here; see /opt/aprs-incident-rf-bridge/README.md.
 
 # ---- Required -----------------------------------------------------------------
+# The installer asks for these four. The service will not start until they are set.
 
-# YOUR callsign and SSID: the station that transmits. The service will not start
-# while this is N0CALL.
-callsign = N0CALL
+# YOUR callsign and SSID: the station that transmits (for example W3XYZ-10).
+callsign =
 
-# The centre of the area you want to cover, in decimal degrees (west and south are
-# negative), and the radius around it in miles.
-lat = 40.12
-lon = -75.34
+# The centre of the area you want to cover, in decimal degrees (north and east are
+# positive, south and west negative), and the radius around it in miles.
+lat =
+lon =
 miles = 10
 
 # ---- The feeder ---------------------------------------------------------------

@@ -72,7 +72,7 @@ import urllib.request
 import zlib
 
 API = "https://api.weather.gov"
-DEFAULT_HOME = (40.12, -75.34)
+NO_HOME = (0.0, 0.0)        # there is no built-in location: set APRS_HOME to your own "lat,lon"
 OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
 CACHE_FILE = "eink_basemap.json"
 SYMBOL_URLS = ["https://raw.githubusercontent.com/hessu/aprs-symbols/master/png/aprs-symbols-24-{t}.png",
@@ -1151,8 +1151,8 @@ def number(value, default, lo, hi):
 
 
 def parse_home(text):
-    """(lat, lon) from text such as '40.12,-75.34', '40.12, -75.34', '40.12 -75.34' or
-    '40.12N 75.34W' (quotes and degree signs are ignored).  Raises ValueError."""
+    """(lat, lon) from text such as '40.00,-75.00', '40.00, -75.00', '40.00 -75.00' or
+    '40.00N 75.00W' (quotes and degree signs are ignored).  Raises ValueError."""
     t = str(text or "")
     for odd, plain in (("\u2212", "-"), ("\u2013", "-"), ("\u2014", "-"), ("\u2010", "-"), ("\u2011", "-"),
                        ("\u201c", ""), ("\u201d", ""), ("\u2018", ""), ("\u2019", ""), ("\u00a0", " "),
@@ -1168,7 +1168,7 @@ def parse_home(text):
     if len(nums) != 2 or len(letters) not in (0, 2):
         raise ValueError(f"cannot read a latitude and longitude from {text!r}")
     hemi = ["", ""]
-    if letters:                                       # 40.12N 75.34W (suffix) or N40.12 W75.34 (prefix)
+    if letters:                                       # 40.00N 75.00W (suffix) or N40.00 W75.00 (prefix)
         suffix = t[-1] in "NSEW"
         for L in letters:
             owner = [i for i, n in enumerate(nums) if (n.end() <= L.start() if suffix else n.start() >= L.end())]
@@ -1191,16 +1191,22 @@ _HOME_WARNED = []
 
 
 def home_position():
+    """The centre of your area, from APRS_HOME ("lat,lon").  There is no built-in location: until
+    APRS_HOME is set this says so once and answers 0,0."""
     text = os.environ.get("APRS_HOME") or ""
     if not text.strip():
-        return DEFAULT_HOME
+        if not _HOME_WARNED:
+            _HOME_WARNED.append(1)
+            print("# APRS_HOME is not set: set it to the centre of your area as lat,lon. Using 0,0 until then.",
+                  file=sys.stderr, flush=True)
+        return NO_HOME
     try:
         return parse_home(text)
     except ValueError as e:
         if not _HOME_WARNED:
             _HOME_WARNED.append(1)
-            print(f"# APRS_HOME: {e}; using {DEFAULT_HOME[0]},{DEFAULT_HOME[1]} instead", file=sys.stderr, flush=True)
-        return DEFAULT_HOME
+            print(f"# APRS_HOME: {e}; using 0,0 until it is corrected", file=sys.stderr, flush=True)
+        return NO_HOME
 
 
 def render(objects, params, basemap=None, now=None, colour=False, symbols=None, messages=None):

@@ -68,13 +68,13 @@ cd tests && python3 -m unittest test_priority test_send test_web test_water  # r
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
 # aprs-incident-rf-bridge (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
-python3 aprs-incident-rf-bridge/aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+python3 aprs-incident-rf-bridge/aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00 --once
 cd aprs-incident-rf-bridge/tests && python3 -m unittest test_radio
 sudo sh aprs-incident-rf-bridge/systemd/install.sh   # on a Linux machine: install it as a systemd service (settings in /etc/aprs-incident-rf-bridge/aprs-incident-rf-bridge.conf, see aprs-incident-rf-bridge/INSTALL.md)
 
 # aprs-mapimage
 cd aprs-mapimage && cp .env.example .env && docker compose up -d --build
-cd aprs-mapimage/app && DATA_DIR=/tmp/mi APRS_HOME=40.12,-75.34 PORT=8790 python3 server.py   # without Docker
+cd aprs-mapimage/app && DATA_DIR=/tmp/mi APRS_HOME=40.00,-75.00 PORT=8790 python3 server.py   # without Docker
 python3 aprs-mapimage/tools/build_world.py <natural-earth geojson folder> aprs-mapimage/app/world.json.gz
 python3 aprs-mapimage/tools/sync_shared.py           # copy the shared modules into aprs-incident-feeder/
 python3 aprs-mapimage/tools/sync_shared.py --check   # exit 1 if the two copies differ

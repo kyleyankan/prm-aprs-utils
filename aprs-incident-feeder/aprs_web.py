@@ -239,7 +239,7 @@ def packets_near(q):
         since = float(q.get("since", 0) or 0)
         limit = int(q.get("limit", 0) or 0)
     except KeyError:
-        return 400, {"error": "lat and lon are required, e.g. /api/packets?lat=40.12&lon=-75.34&miles=25"}
+        return 400, {"error": "lat and lon are required, e.g. /api/packets?lat=40.00&lon=-75.00&miles=25"}
     except ValueError:
         return 400, {"error": "lat, lon, miles, since and limit must be numbers"}
     if not (-90 <= lat <= 90 and -180 <= lon <= 180 and 0 < miles <= 1000):
@@ -1034,7 +1034,7 @@ function showTheme(){$("theme").textContent=document.documentElement.dataset.the
 function flipTheme(){const t=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=t;
   try{localStorage.setItem("aprs-theme",t)}catch(e){} showTheme();}
 showTheme();
-const map=L.map("map").setView([40.12,-75.34],10);
+const map=L.map("map").setView([20,0],2);   // the whole world until the first objects arrive
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
 const layer=L.layerGroup().addTo(map); let data={objects:[],levels:{},sources:[]}, marks={}, first=true;
 function pop(o){return `<b>${esc(o.name)}</b> <span class="lv ${o.level}">${o.level}</span><br>${esc(o.comment)||"<i>(no text)</i>"}<br><span class="sr">${o.source_url?`<a href="${esc(o.source_url)}" target="_blank" rel="noopener">${esc(o.source_label)}</a>`:esc(o.source_label)} · read ${hhmm(o.updated)}</span>`;}
@@ -1202,7 +1202,7 @@ const js=v=>esc(JSON.stringify(v));
 const $=id=>document.getElementById(id);
 const hidden=new Set(); let data={objects:[],suppressed:[],sources:[],services:[]}; let markers={}; let editing=null; let first=true; let sel=null; let creating=null; let shapes=null;
 const SHAPE_COL={red:"#e03131",yellow:"#e8a100",blue:"#1c7ed6",green:"#2f9e44"}, SHAPE_DASH={solid:null,dashed:"8 6","double-dashed":"2 6"};
-const map=L.map("map").setView([40.1,-75.3],9);
+const map=L.map("map").setView([20,0],2);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
 
 map.on("click",e=>{ if(creating===null) return; placeNew(e.latlng.lat,e.latlng.lng); });
@@ -1461,7 +1461,7 @@ def main():
         SYMBOLS = aprs_eink.Symbols(data_dir())
     if aprs_listen and not ARGS.no_listen and os.environ.get("APRS_LISTEN", "1") != "0":
         global LISTENER
-        hlat, hlon = aprs_eink.home_position() if aprs_eink else (40.12, -75.34)
+        hlat, hlon = aprs_eink.home_position() if aprs_eink else (0.0, 0.0)
         LISTENER = aprs_listen.Listener(ARGS.callsign, hlat, hlon, max(1, ARGS.listen_miles),
                                         max_age=max(300, ARGS.listen_minutes * 60),
                                         # receive-only login: a second verified login with the callsign

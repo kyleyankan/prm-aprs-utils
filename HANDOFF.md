@@ -324,6 +324,17 @@ file that say `aprs-pi/` mean the same folder.
      defaults to `https://aprs-incidents.phlm.sh`. The examples in the documents leave it out,
      and the example settings file has `server` commented. The Pi's own settings name
      `http://127.0.0.1:8080` explicitly, so they are unaffected.
+   - **Installer questions, and no built-in callsign or location, 2026-11-25**: the bridge's
+     `install.sh` asks for callsign, latitude, longitude and radius on a first install (or takes
+     `--callsign --lat --lon --radius`; `16km` is accepted), checks each with the script's own
+     rules and writes them to the settings file. The example settings file has those blank, so
+     an unconfigured service exits with code 2. In the feeder, `aprs_nws.py` has no default
+     home (`--home` or `APRS_HOME` is required), `aprs_eink.home_position()` answers 0,0 with
+     one warning when `APRS_HOME` is unset (master in `aprs-mapimage/app/`, synced), and both
+     web pages open on a world view until the first objects arrive. Examples in the documents
+     use made-up values (`W3XYZ-10`, feeder `W3FED-15`, 40.00, -75.00). Test fixtures, the slide
+     deck and the article were left as they were. The Pi sets `APRS_HOME` itself; this feeder
+     code has not been deployed there.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

@@ -10,6 +10,8 @@ Needs only Python 3.9+ (already on Raspberry Pi OS). No extra packages.
 2. Configure
      ./aprs_ctl.sh init
      nano aprs.env        callsign, Google key, PennDOT login, NWS contact, home lat,lon
+                          (APRS_HOME is required: there is no built-in location. The weather
+                          feed will not start without it, and the map listens around it.)
                           (bucks, nj511 and web need no credentials)
                           SEND=0 prints only; SEND=1 transmits. Trim ENABLED to what you use.
                           ("send", the one program that talks to APRS-IS, always runs.)
@@ -93,7 +95,7 @@ Importance levels, and choosing what is sent
      in aprs.env sets the starting value (default low = everything).
 
 Packets for radios (which of our objects are near a point)
-     http://<pi address>:8080/api/packets?lat=40.12&lon=-75.34&miles=25
+     http://<pi address>:8080/api/packets?lat=40.00&lon=-75.00&miles=25
      Lists the objects this station has on APRS-IS within that many miles of the point, so a radio
      in that area can put them on the air. Kills from the last 26 minutes are included and come
      first: a radio that sent an object should send its kill too. Then the most important objects,
@@ -105,12 +107,12 @@ Packets for radios (which of our objects are near a point)
                format=text        one packet per line instead of JSON
                bulletins=0        leave out the bulletins for critical objects in the area
      Each JSON entry has name, live, lat, lon, miles, source, sent, changed, and the packet as
-       info   ;FIRE7K2QX*241740z4007.80N/07519.80Wd...            the object itself
-       tnc2   K3YLE-15>APRS,TCPIP*:;FIRE7K2QX*...                 as it was sent to APRS-IS
-       rf     }K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*...       (with via=) what the radio transmits
+       info   ;FIRE7K2QX*241740z4000.60N/07500.90Wd...            the object itself
+       tnc2   W3FED-15>APRS,TCPIP*:;FIRE7K2QX*...                 as it was sent to APRS-IS
+       rf     }W3FED-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*...       (with via=) what the radio transmits
      Use "rf" on the air. A radio that sends the bare object under its own callsign becomes the
      object's owner, and an igate that hears it puts a second copy on APRS-IS; the third-party
-     form keeps K3YLE-15 as the sender and igates do not pass it back.
+     form keeps the feeder's callsign (W3FED-15 here) as the sender and igates do not pass it back.
      This only lists packets. The radio's own program decides what to transmit and how often.
      With SEND=0 the list is built from the scripts' state files and has no kills.
      Other operators run aprs-incident-rf-bridge/aprs_radio.py against this address to put the objects on RF.

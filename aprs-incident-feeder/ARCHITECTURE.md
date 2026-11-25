@@ -420,7 +420,7 @@ therefore re-sends nothing.
 
 ```sh
 ./aprs_ctl.sh logs send -f                                        # what was sent, and why
-cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list     # every object and its times
+cd data && python3 ../aprs_send.py --callsign W3FED-15 --list     # every object and its times
 ```
 
 ### One login only
@@ -450,7 +450,7 @@ no connection. This is the safe test mode and the default.
   APRS-IS within a distance of a point, so a radio in that area can transmit them: recent kills
   first, then the most important, then the nearest. `min=high` keeps only objects rated at least
   that important. With `via=CALL` each comes in third-party form
-  (`}K3YLE-15>APRS,TCPIP,CALL*:...`), which keeps this station as the sender and stops igates
+  (`}W3FED-15>APRS,TCPIP,CALL*:...`), which keeps this station as the sender and stops igates
   passing the packet back to APRS-IS. It reads the sender's `sender_state.json` and transmits
   nothing itself.
 - **Radio gateways:** every successful `/api/packets` request is remembered for 7 days in

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Put the Incident Feeder's objects for your area on the air through your own TNC.
 
-  python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34
+  python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00
   ... add --transmit to really send; without it the packets are only printed.
   ... or keep the settings in a file: --config FILE (see systemd/aprs-incident-rf-bridge.conf.example).
       INSTALL.md shows how to run it as a systemd service.
@@ -42,7 +42,7 @@ Auto mode (--auto): carry everything in your radius, a little at a time
 
 How the packets look on the air
   They are sent in APRS third-party form, from YOUR callsign:
-      W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4007.80N/07519.80WdBUILDING FIRE ...
+      W3XYZ-10>APZIFD:}W3FED-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4000.60N/07500.90WdBUILDING FIRE ...
   That keeps the feeder as the owner of the object, and igates do not pass third-party
   packets back to APRS-IS, so the object does not arrive there twice.  --path adds
   digipeaters (for example --path WIDE2-1); the default is none.
@@ -472,7 +472,7 @@ def config_arguments(path, ap):
             elif value.lower() not in NO:
                 ap.error(f"{where}: {name.strip()} must be yes or no, not {value!r}")
         elif value:
-            out.append(f"{option}={value}")     # the = form keeps "lon = -75.34" from reading as an option
+            out.append(f"{option}={value}")     # the = form keeps "lon = -75.00" from reading as an option
     return out
 
 
@@ -483,8 +483,8 @@ def parse_args(argv=None):
                          "command line as well win over the file")
     ap.add_argument("--server", default=SERVER, help=f"the feeder's address (default {SERVER})")
     ap.add_argument("--callsign", required=True, help="YOUR callsign-SSID, the station that transmits (e.g. W3XYZ-10)")
-    ap.add_argument("--lat", type=float, required=True, help="latitude of the centre of your area, e.g. 40.12")
-    ap.add_argument("--lon", type=float, required=True, help="longitude, negative for west, e.g. -75.34")
+    ap.add_argument("--lat", type=float, required=True, help="latitude of the centre of your area, e.g. 40.00")
+    ap.add_argument("--lon", type=float, required=True, help="longitude, negative for west, e.g. -75.00")
     ap.add_argument("--miles", type=float, default=10, help="radius around that point (default 10)")
     ap.add_argument("--auto", action="store_true",
                     help="carry every object in the radius, a few packets per poll, the most important first")

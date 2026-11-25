@@ -52,7 +52,7 @@ operator's map.
 Without `--transmit` the script only prints what it would send. Start here:
 
 ```sh
-python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00 --once
 ```
 
 Each line shows the reason (`new`, `changed`, `refresh`, `kill` or `dropped`) and the packet.
@@ -63,10 +63,10 @@ Add `--transmit` once the list looks right.
 
 ```sh
 # Direwolf or another software TNC on this machine
-python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00 --transmit
 
 # a hardware TNC in KISS mode (Linux or macOS)
-python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 \
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00 \
     --kiss-serial /dev/ttyUSB0 --baud 9600 --transmit
 ```
 
@@ -113,18 +113,18 @@ order each poll is:
 
 So a new building fire jumps ahead of the roadwork still waiting, and low-importance objects go
 out only when nothing more important is waiting. At 2 packets every 2 minutes that is 60 packets
-an hour. Within 25 miles of Norristown one evening there were about 60 objects: the handful rated
+an hour. In one 25 mile radius one evening there were about 60 objects: the handful rated
 medium were repeated every 30 minutes and each low one got a turn roughly once an hour. On a busy
 day some low ones wait longer or are never sent; that is the intent. `--min` and `--max-objects`
 still limit the list if you give them, and `--max-per-poll` is not used in this mode.
 
 ```sh
-python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --miles 15 --auto
+python3 aprs_radio.py --callsign W3XYZ-10 --lat 40.00 --lon -75.00 --miles 15 --auto
 ```
 
 **Bulletins.** When an object rated critical (a tornado warning, an entrapment, an explosion) is
 inside your radius, the feeder also lists a general bulletin with its text, and this script
-transmits it: `W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*::BLN1     :Tornado Warning til 9:15PM`.
+transmits it: `W3XYZ-10>APZIFD:}W3FED-15>APRS,TCPIP,W3XYZ-10*::BLN1     :Tornado Warning til 9:15PM`.
 That reaches radios that show messages but no map. A bulletin goes out when it is new or its
 text changed and again every `--refresh` minutes, after any kills and before the objects, and it
 counts towards `--max-per-poll`. It is sent whatever `--min` says. There is nothing to kill when
@@ -142,7 +142,7 @@ quiet.
 They go out in APRS third-party form, from your callsign:
 
 ```
-W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4007.80N/07519.80WdBUILDING FIRE MAIN ST/OAK ST
+W3XYZ-10>APZIFD:}W3FED-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4000.60N/07500.90WdBUILDING FIRE MAIN ST/OAK ST
 ```
 
 - **Your callsign is the sender**, so the transmission is identified as yours.

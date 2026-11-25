@@ -30,8 +30,8 @@ the APRS storm format with wind radii when the NHC forecast advisory can be read
 Clients that do not know these formats simply show them as extra text.
 
   export NWS_CONTACT="you@example.com"        # NWS asks for a contact in the User-Agent
-  python3 aprs_nws.py --home 40.12,-75.34 --once              # print only
-  python3 aprs_nws.py --home 40.12,-75.34 --callsign W3XYZ-9 --send
+  python3 aprs_nws.py --home 40.00,-75.00 --once              # print only
+  python3 aprs_nws.py --home 40.00,-75.00 --callsign W3XYZ-9 --send
 
 Data: National Weather Service / National Hurricane Center (public domain).
 This is a convenience display, NOT a warning system: delays of minutes are normal.
@@ -61,7 +61,6 @@ API = "https://api.weather.gov"
 NHC_URL = "https://www.nhc.noaa.gov/CurrentStorms.json"
 STATE_FILE = "nws_live_state.json"
 ZONE_CACHE = "nws_zone_cache.json"
-DEFAULT_HOME = "40.12,-75.34"          # Norristown, PA - change with --home / $APRS_HOME
 DEFAULT_AREAS = "PA,NJ,DE,MD,DC,NY,CT,VA,WV,AN"   # states + AN (Atlantic coastal waters) to query
 CONTACT_ENV, HOME_ENV = "NWS_CONTACT", "APRS_HOME"
 COMMENT_LIMIT = 67                     # APRS 1.0 says 43; --comment-length 43 if clients truncate
@@ -121,8 +120,8 @@ COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
 
 def parse_home(text):
-    """(lat, lon) from text such as '40.12,-75.34', '40.12, -75.34', '40.12 -75.34' or
-    '40.12N 75.34W' (quotes and degree signs are ignored).  Raises ValueError."""
+    """(lat, lon) from text such as '40.00,-75.00', '40.00, -75.00', '40.00 -75.00' or
+    '40.00N 75.00W' (quotes and degree signs are ignored).  Raises ValueError."""
     t = str(text or "")
     for odd, plain in (("\u2212", "-"), ("\u2013", "-"), ("\u2014", "-"), ("\u2010", "-"), ("\u2011", "-"),
                        ("\u201c", ""), ("\u201d", ""), ("\u2018", ""), ("\u2019", ""), ("\u00a0", " "),
@@ -138,7 +137,7 @@ def parse_home(text):
     if len(nums) != 2 or len(letters) not in (0, 2):
         raise ValueError(f"cannot read a latitude and longitude from {text!r}")
     hemi = ["", ""]
-    if letters:                                       # 40.12N 75.34W (suffix) or N40.12 W75.34 (prefix)
+    if letters:                                       # 40.00N 75.00W (suffix) or N40.00 W75.00 (prefix)
         suffix = t[-1] in "NSEW"
         for L in letters:
             owner = [i for i, n in enumerate(nums) if (n.end() <= L.start() if suffix else n.start() >= L.end())]
@@ -935,8 +934,8 @@ def run_cycle(args, live, aprs_is, zones):
 def main():
     global USER_AGENT
     ap = argparse.ArgumentParser(description="NWS alerts + NHC tropical cyclones -> APRS objects")
-    ap.add_argument("--home", default=os.environ.get(HOME_ENV, DEFAULT_HOME),
-                    help=f"centre of your area as lat,lon (default: ${HOME_ENV} or {DEFAULT_HOME})")
+    ap.add_argument("--home", default=os.environ.get(HOME_ENV) or None,
+                    help=f"centre of your area as lat,lon, e.g. 40.00,-75.00 (default: ${HOME_ENV}; there is no built-in location)")
     ap.add_argument("--radius-miles", type=float, default=200, help="show alerts within this distance (default 200)")
     ap.add_argument("--areas", default=DEFAULT_AREAS,
                     help=f"state/marine area codes to query (default {DEFAULT_AREAS})")
@@ -969,11 +968,13 @@ def main():
 
     if not 20 <= args.comment_length <= 200:
         ap.error("--comment-length must be between 20 and 200")
+    if not (args.home or "").strip():
+        ap.error(f"where is your area?  Pass --home LAT,LON (or set ${HOME_ENV} in aprs.env), e.g. --home 40.00,-75.00")
     try:
         args.home = parse_home(args.home)
     except ValueError as e:
         where = f"${HOME_ENV} in aprs.env" if args.home == os.environ.get(HOME_ENV) else "--home"
-        ap.error(f"{where}: {e}.  Write it as latitude,longitude, e.g. 40.12,-75.34")
+        ap.error(f"{where}: {e}.  Write it as latitude,longitude, e.g. 40.00,-75.00")
     if not args.contact.strip():
         ap.error(f"NWS asks every client to identify itself: pass --contact (or set ${CONTACT_ENV}) "
                  f"to an e-mail address or website where they can reach you")
