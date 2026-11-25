@@ -101,6 +101,7 @@ SOURCES = {
     "njta_live_state.json":   ("njta", "NJ Turnpike Authority alerts", "https://www.njta.gov/"),
     "pa511_live_state.json":  ("pa511", "PennDOT 511PA (RCRS)", "https://www.511pa.com/"),
     "nws_live_state.json":    ("nws", "National Weather Service", "https://www.weather.gov/"),
+    "water_live_state.json":  ("water", "NWS river and tide gauges", "https://water.noaa.gov/"),
     "custom_live_state.json": ("custom", "Created here (manual)", ""),
 }
 CUSTOM_FILE = "custom_live_state.json"
@@ -945,7 +946,7 @@ button.del{color:var(--danger);border-color:var(--dline)}
 </div>
 <div id="toast"></div>
 <script>
-const COLORS={montco:"#d9480f",chesco:"#7b2cbf",bucks:"#b8860b",nj511:"#0b7285",njta:"#0b7285",pa511:"#1f5fd0",nws:"#c0362c",nhc:"#a61e8a",custom:"#2b8a3e"};
+const COLORS={montco:"#d9480f",chesco:"#7b2cbf",bucks:"#b8860b",nj511:"#0b7285",njta:"#0b7285",pa511:"#1f5fd0",nws:"#c0362c",water:"#1971c2",nhc:"#a61e8a",custom:"#2b8a3e"};
 const SYMBOLS=[["/.","Red X"],["//","Red dot"],["\\!","Emergency (!)"],["\\'","Crash site"],["/f","Fire truck"],["/a","Ambulance"],["/!","Police"],
  ["/c","Incident command post"],["/o","EOC"],["/h","Hospital"],["/+","Red cross"],["/E","Eyeball / event"],["/r","Antenna"],["/-","House"],
  ["\\<","Advisory flag"],["\\w","Flooding"],["\\T","Thunderstorm"],["\\n","Red triangle"]];

@@ -38,6 +38,22 @@ Sending to APRS-IS (one connection)
      Upgrading: copy the new files, then ./aprs_ctl.sh restart. Everything is sent once at the
      first start, because the sender does not yet know what is on the air.
 
+River and tide gauges (service "water")
+     aprs_water.py asks the National Weather Service's water prediction service (water.noaa.gov)
+     every 10 minutes for the gauges in south-east PA and south Jersey. A gauge becomes an
+     object ONLY while its latest reading is at flood stage (minor, moderate or major) or at
+     or below its low-water mark. A gauge in its normal range sends nothing, and the object
+     is killed when the gauge returns to normal. Forecasts are not used.
+       RIVBDRN4   MINOR FLOOD 9.7ft Delaware River at Burlington @21:15
+     Importance: major flooding is critical (and gets a bulletin), moderate high, minor medium,
+     low water low.
+     It is a new service: add "water" to ENABLED in aprs.env, then ./aprs_ctl.sh start water.
+     aprs.env: EXTRA_water="--min-flood action"   also the stage just below flooding
+               EXTRA_water="--no-low-water"       flooding only
+               EXTRA_water="--states NJ,PA"       only gauges in these states
+               EXTRA_water="--box 39.2,-76.2,40.7,-74.4"   the area: south,west,north,east
+     python3 aprs_water.py --once    prints what it would send now.
+
 What the sender does on its own (maximum age, duplicates, bulletins)
      Maximum age. An object on the air that no script has handed over for 2 hours is killed, so
      a source that stays down does not leave its objects on everyone's map. They come back as

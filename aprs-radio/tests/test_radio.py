@@ -320,5 +320,72 @@ class Bulletins(unittest.TestCase):
             self.assertEqual(R.Carried(path).plan([bln(1)], 200, 1800, 10), [])
 
 
+def item(name, level, score=50, text="BUILDING FIRE MAIN ST", live=True):
+    return {"rf": rf(name, text, live=live), "level": level, "score": score}
+
+
+class AutoMode(unittest.TestCase):
+    """--auto: everything in the radius, a few packets per poll, the most important first."""
+
+    def setUp(self):
+        self.c = R.Carried()
+
+    def go(self, packets, now, burst=2, refresh=1800, **kw):
+        plan = self.c.plan_auto(packets, now, refresh, **kw)
+        for reason, name, packet in plan[:burst]:
+            self.c.sent(reason, name, packet, now)
+        return [(reason, name) for reason, name, _ in plan[:burst]], len(plan)
+
+    def test_the_most_important_go_first_and_the_rest_follow_slowly(self):
+        listed = [item("WORK1", "low", 20), item("TRAF1", "medium", 45), item("FIRE1", "high", 70),
+                  item("WORK2", "low", 25), item("TOR1", "critical", 95)]
+        self.assertEqual(self.go(listed, 0), ([("new", "TOR1"), ("new", "FIRE1")], 5))
+        self.assertEqual(self.go(listed, 120), ([("new", "TRAF1"), ("new", "WORK2")], 3))     # higher score first
+        self.assertEqual(self.go(listed, 240), ([("new", "WORK1")], 1))
+        self.assertEqual(self.go(listed, 360), ([], 0))                                       # all on the air: quiet
+
+    def test_a_new_important_object_jumps_ahead_of_low_ones_still_waiting(self):
+        low = [item(f"WORK{i}", "low", 20 + i) for i in range(6)]
+        self.assertEqual(self.go(low, 0)[0], [("new", "WORK5"), ("new", "WORK4")])
+        sent, waiting = self.go(low + [item("FIRE9", "high", 70)], 120)
+        self.assertEqual((sent, waiting), ([("new", "FIRE9"), ("new", "WORK3")], 5))
+
+    def test_a_repeat_of_an_important_object_beats_a_new_low_one_but_waits_behind_a_new_peer(self):
+        self.go([item("FIRE1", "high")], 0)
+        listed = [item("FIRE1", "high"), item("FIRE2", "high"), item("WORK1", "low")]
+        self.assertEqual(self.go(listed, 1800, burst=3)[0], [("new", "FIRE2"), ("refresh", "FIRE1"), ("new", "WORK1")])
+
+    def test_low_objects_are_repeated_longest_silent_first(self):
+        listed = [item("WORK1", "low", 20), item("WORK2", "low", 20), item("WORK3", "low", 20)]
+        self.go(listed, 0)                                    # WORK1, WORK2
+        self.go(listed, 600)                                  # WORK3
+        self.assertEqual(self.go(listed, 1800, burst=1)[0], [("refresh", "WORK1")])
+        self.assertEqual(self.go(listed, 1920, burst=1)[0], [("refresh", "WORK2")])
+        self.assertEqual(self.go(listed, 2040, burst=1)[0], [])                              # WORK3 is not due yet
+
+    def test_kills_then_bulletins_come_before_any_object(self):
+        self.go([item("FIRE1", "high"), item("FIRE2", "high")], 0)
+        listed = [item("FIRE1", "high", live=False), item("TOR1", "critical", 95, "Tornado Warning"), bln(1)]
+        sent, _ = self.go(listed, 120, burst=3)
+        self.assertEqual(sent, [("kill", "FIRE1"), ("dropped", "FIRE2"), ("bulletin", "BLN1")])
+        self.assertEqual(self.go(listed, 240)[0], [("new", "TOR1")])
+
+    def test_a_low_object_never_sent_needs_no_kill_and_limits_still_apply(self):
+        self.assertEqual(self.go([item("FIRE1", "high"), item("WORK1", "low")], 0, burst=1)[0], [("new", "FIRE1")])
+        self.assertEqual(self.go([item("FIRE1", "high")], 120)[0], [])                       # WORK1 left unsent: nothing to kill
+        both = [item("FIRE1", "high"), item("WORK1", "low"), item("WORK2", "low")]
+        self.assertEqual(self.go(both, 240, max_objects=1), ([], 0))                         # only the top one is kept
+        self.assertEqual(self.go(both, 360, max_objects=0)[0], [("dropped", "FIRE1")])
+
+    def test_settings(self):
+        base = ["--server", "http://127.0.0.1:1", "--callsign", ME, "--lat", "40", "--lon", "-75"]
+        a = R.parse_args(base + ["--auto"])
+        self.assertEqual((a.min, a.max_objects, a.burst), ("low", None, 2))
+        self.assertEqual(R.parse_args(base + ["--auto", "--burst", "9", "--min", "medium"]).burst, 3)
+        self.assertEqual(R.parse_args(base + ["--auto", "--min", "medium", "--max-objects", "20"]).max_objects, 20)
+        a = R.parse_args(base)
+        self.assertEqual((a.min, a.max_objects, a.auto), ("medium", 10, False))
+
+
 if __name__ == "__main__":
     unittest.main()

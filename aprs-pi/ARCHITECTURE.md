@@ -4,7 +4,7 @@ This folder turns public dispatch, traffic and weather feeds into APRS objects o
 under one callsign. It runs on a Raspberry Pi as eight small programs, all Python 3 standard
 library, started and watched by one shell script.
 
-- Six **feed scripts** each poll one source and work out which objects should be on the air.
+- Seven **feed scripts** each poll one source and work out which objects should be on the air.
 - One **sender** (`aprs_send.py`) holds the only sending connection to APRS-IS and decides which
   packets actually go out.
 - One **web service** (`aprs_web.py`) shows a map of the objects, lets you correct or delete them,
@@ -280,6 +280,22 @@ sequenceDiagram
 - **State file:** `nws_live_state.json`.
 
 This is a convenience display, not a warning system: delays of minutes are normal.
+
+### River and tide gauges: `aprs_water.py`
+
+- **Source:** the National Weather Service's National Water Prediction Service,
+  `https://api.water.noaa.gov/nwps/v1/gauges` with a bounding box. One request returns every gauge
+  in the area (about 140) with its latest reading and that reading's flood category.
+- **What becomes an object:** only a gauge whose latest reading is at flood stage (minor, moderate,
+  major; `--min-flood action` adds the stage below) or at its low-water mark (`low_threshold`).
+  A normal gauge sends nothing. The forecast in the same answer is ignored on purpose.
+- **Position:** supplied (the gauge's own). **Name:** `RIV` + the NWS gauge id, so it never changes.
+- **Stale readings:** a reading older than 6 hours does not count, so a gauge that stops
+  reporting while flooded is killed, not left up.
+- **Polled** every 10 minutes (`INTERVAL_water`, minimum 300 s). An answer with no gauges at all is
+  treated as a failure: nothing is sent and nothing is killed.
+- **Overlap to watch:** coastal flood warnings from `aprs_nws.py` cover the same tides as an area;
+  these are the individual gauges inside it.
 
 ## The queue: `data/outbox/`
 

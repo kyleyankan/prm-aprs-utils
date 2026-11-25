@@ -262,6 +262,20 @@ With the traffic of that day, "medium and above" would kill about 160 roadwork o
        list's `bulletins` field (empty). Not yet seen live: a merge, a bulletin, a stale kill.
        Noticed on the live map: Chester County lists one crash twice, as a TRAF and a FIRE call
        at the same junction; same-source pairs are not merged.
+   - **River and tide gauges, 2026-11-25** (`aprs_water.py`, service `water`, tests in
+     `test_water.py`; not deployed when written): objects only for gauges at flood stage or at
+     their low-water mark, from the NWS water prediction service; names `RIV` + gauge id; rated
+     by flood category in `aprs_priority.py`. The owner asked for "flooding or drought" only, so
+     forecasts and the action stage are off by default. Searched first for NJ county dispatch
+     feeds (Camden, Burlington, Gloucester, Salem, Cumberland): none public. Wildfire sources
+     were looked at and not built: the national WFIGS feed misses most NJ state fires; NJDEP has
+     public prescribed-burn and fire-danger layers. Open: the service's terms of use were not
+     read; tidal gauges may duplicate NWS coastal flood warnings.
+   - **Radio script auto mode, 2026-11-25** (`aprs_radio.py` 1.2, `--auto`, `--burst` 1-3):
+     asks for every level in the radius and sends only a few packets per poll from a priority
+     queue (kills, bulletins, then objects by level; new or changed before repeats; longest
+     silent first). Low objects go out only when nothing more important waits. Tested with unit
+     tests and a print-only run against the live feeder; not run on the air.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

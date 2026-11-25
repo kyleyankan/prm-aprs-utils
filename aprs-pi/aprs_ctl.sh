@@ -11,7 +11,7 @@
 #   ./aprs_ctl.sh symbols              add the APRS symbol settings to an existing aprs.env
 #
 # Changes to aprs.env take effect the next time a service starts (restart <service>).
-# Services: send montco chesco bucks nj511 pa511 nws web   (web = map/editor on WEB_PORT, default 8080)
+# Services: send montco chesco bucks nj511 pa511 nws water web   (web = map/editor on WEB_PORT, default 8080)
 #   send = aprs_send.py, the one program that logs in to APRS-IS; the others hand their packets to it.
 #   It is always enabled, because without it nothing reaches APRS-IS.
 #
@@ -31,7 +31,7 @@ CONF="${APRS_CONF:-$BASE/aprs.env}"
 RUN="${APRS_RUN_DIR:-$BASE/run}"
 LOGS="${APRS_LOG_DIR:-$BASE/logs}"
 DATA="${APRS_DATA_DIR:-$BASE/data}"
-SERVICES=(send montco chesco bucks nj511 pa511 nws web)   # send first: the others hand packets to it
+SERVICES=(send montco chesco bucks nj511 pa511 nws water web)   # send first: the others hand packets to it
 RETIRED=(njta)                 # old services: stopped if still running, never started
 
 # ---- defaults (environment variables win over these; aprs.env wins over both) ---------------------------------------
@@ -39,7 +39,7 @@ PYTHON="${PYTHON:-python3}"
 CALLSIGN="${CALLSIGN:-N0CALL}"          # your real callsign-SSID; required when SEND=1
 SEND="${SEND:-0}"                     # 0 = print packets only, 1 = send to APRS-IS
 COMMENT_LENGTH="${COMMENT_LENGTH:-67}"          # use 43 if clients truncate/drop objects
-ENABLED="${ENABLED:-send montco chesco bucks nj511 pa511 nws web}"
+ENABLED="${ENABLED:-send montco chesco bucks nj511 pa511 nws water web}"
 INTERVAL_send="${INTERVAL_send:-0}"
 INTERVAL_montco="${INTERVAL_montco:-120}"
 INTERVAL_chesco="${INTERVAL_chesco:-120}"
@@ -47,6 +47,7 @@ INTERVAL_bucks="${INTERVAL_bucks:-120}"
 INTERVAL_nj511="${INTERVAL_nj511:-120}"
 INTERVAL_pa511="${INTERVAL_pa511:-120}"
 INTERVAL_nws="${INTERVAL_nws:-120}"
+INTERVAL_water="${INTERVAL_water:-600}"
 INTERVAL_web="${INTERVAL_web:-0}"
 EXTRA_send="${EXTRA_send:-}"              # e.g. --resend-minutes 26 --min-level medium
 EXTRA_montco="${EXTRA_montco:-}"            # extra arguments appended for that service
@@ -55,6 +56,7 @@ EXTRA_bucks="${EXTRA_bucks:-}"
 EXTRA_nj511="${EXTRA_nj511:-}"
 EXTRA_pa511="${EXTRA_pa511:-}"
 EXTRA_nws="${EXTRA_nws:-}"
+EXTRA_water="${EXTRA_water:-}"
 EXTRA_web="${EXTRA_web:-}"
 WEB_PORT="${WEB_PORT:-8080}"               # web UI port
 CHECK_EVERY="${CHECK_EVERY:-5}"              # seconds between health checks
@@ -108,6 +110,7 @@ script_for() {
         bucks)  echo aprs_bucks.py  ;;
         nj511)  echo aprs_nj511.py  ;; pa511)  echo aprs_pa511.py  ;;
         njta)   echo aprs_njta.py   ;;
+        water)  echo aprs_water.py  ;;
         nws)    echo aprs_nws.py    ;; web)    echo aprs_web.py    ;;
     esac
 }
@@ -524,7 +527,7 @@ COMMENT_LENGTH=67
 
 # Which services to run (remove any you don't want).
 # "send" (the APRS-IS sender) always runs, listed here or not.
-ENABLED="send montco chesco bucks nj511 pa511 nws web"
+ENABLED="send montco chesco bucks nj511 pa511 nws water web"
 WEB_PORT=8080                     # web map/editor: http://this-machine:8080/ (no login - internal use only)
 
 # Credentials
@@ -547,6 +550,7 @@ INTERVAL_bucks=120
 INTERVAL_nj511=120
 INTERVAL_pa511=180
 INTERVAL_nws=120
+INTERVAL_water=600    # river gauges change slowly; minimum 300
 
 # Extra command-line options per service, for example:
 #   EXTRA_montco="--categories Fire,Traffic --max-age-hours 6"
@@ -561,6 +565,9 @@ EXTRA_bucks=""
 EXTRA_nj511=""
 EXTRA_pa511=""
 EXTRA_nws=""
+# River gauges (water): objects only for gauges that are flooding or at low water.
+#   EXTRA_water="--min-flood action --states NJ,PA"   also the stage just below flooding; only these states
+EXTRA_water=""
 
 # Supervisor tuning (defaults shown)
 #CHECK_EVERY=5        # seconds between health checks

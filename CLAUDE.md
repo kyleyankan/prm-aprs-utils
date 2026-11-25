@@ -7,7 +7,7 @@ with the code.
 
 | Folder | What it is | Where it runs |
 |---|---|---|
-| `aprs-pi/` | Scripts that turn county dispatch, 511 traffic and NWS weather feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
+| `aprs-pi/` | Scripts that turn county dispatch, 511 traffic, NWS weather and river gauge feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
 | `aprs-radio/` | One stand-alone script, `aprs_radio.py`, that other operators run: it polls the Pi's `/api/packets` and transmits the objects near them through their own KISS TNC | Anyone's machine beside a radio; nothing of ours runs it |
 | `aprs-mapimage/` | A stand-alone Docker service that listens to APRS-IS and draws map pictures (PNG/BMP) for e-paper and dashboards, with a builder web page and saved presets | Docker; live at https://aprs.phlm.sh/ (host port 8083 -> container 8080) |
 
@@ -61,7 +61,7 @@ with the code.
 python3 aprs_pa511.py --help  # every feed script has --help; pa511 also has --dump
 ./aprs_ctl.sh logs send -f    # what was really sent to APRS-IS, and why
 cd data && python3 ../aprs_send.py --callsign K3YLE-15 --list   # each object: last change, last send
-cd tests && python3 -m unittest test_priority test_send test_web  # rating, sender and web API tests (fake APRS-IS on localhost)
+cd tests && python3 -m unittest test_priority test_send test_web test_water  # rating, sender, web API and river feed tests (fake servers on localhost)
 python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill leftover objects
 
 # aprs-radio (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
@@ -77,7 +77,7 @@ python3 aprs-mapimage/tools/sync_shared.py --check   # exit 1 if the two copies 
 ```
 
 Tests: `aprs-mapimage/tests/README.md` (development harnesses with fake APRS-IS, fake map services
-and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_priority.py`, `test_send.py`, `test_web.py` (unittest). Use a
+and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_priority.py`, `test_send.py`, `test_web.py`, `test_water.py` (unittest). Use a
 made-up callsign such as `TEST-13` with a fake server: `--send` refuses `N0CALL`.
 
 ## Layout notes

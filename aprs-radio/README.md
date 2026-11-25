@@ -97,6 +97,29 @@ The defaults are deliberately small, because a shared 1200 baud channel fills qu
 | `--path` | none | digipeater path, such as `WIDE2-1` |
 | `--kiss-port` | 0 | which radio to use on a TNC with more than one |
 | `--no-bulletins` | off | do not transmit bulletins |
+| `--auto` | off | carry everything in the radius, slowly, most important first (see below) |
+| `--burst` | 2 | with `--auto`: packets per poll, 1 to 3 |
+
+**Auto mode (`--auto`).** The defaults carry a short list: medium and above, ten objects. With
+`--auto` the script asks for every object in your radius, whatever its level, and works through
+them a little at a time: at most `--burst` packets per poll (default 2, never more than 3). The
+order each poll is:
+
+1. kills, so nothing this station put on the air is left behind;
+2. bulletins for critical objects;
+3. objects, the most important level first. Within a level a new or changed object goes before
+   one that is only due for its `--refresh` repeat, and the one sent longest ago goes first.
+
+So a new building fire jumps ahead of the roadwork still waiting, and low-importance objects go
+out only when nothing more important is waiting. At 2 packets every 2 minutes that is 60 packets
+an hour. Within 25 miles of Norristown one evening there were about 60 objects: the handful rated
+medium were repeated every 30 minutes and each low one got a turn roughly once an hour. On a busy
+day some low ones wait longer or are never sent; that is the intent. `--min` and `--max-objects`
+still limit the list if you give them, and `--max-per-poll` is not used in this mode.
+
+```sh
+python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --miles 15 --auto
+```
 
 **Bulletins.** When an object rated critical (a tornado warning, an entrapment, an explosion) is
 inside your radius, the feeder also lists a general bulletin with its text, and this script

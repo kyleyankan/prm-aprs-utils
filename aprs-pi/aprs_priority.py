@@ -14,7 +14,8 @@ Every object gets a LEVEL and a SCORE.
                      severe thunderstorm / flash flood / marine / snow squall / tropical warnings
   medium    40-59    other fires, crashes, road closures, medical calls, other weather warnings,
                      watches for the severe kinds
-  low        0-39    alarms, investigations, controlled burns, hazards, disabled vehicles, delays,
+                     (a gauge: major flooding is critical, moderate high, minor medium)
+  low        0-39    a gauge near flood stage or at low water; alarms, investigations, controlled burns, hazards, disabled vehicles, delays,
                      roadwork, events, weather watches, advisories and statements
 
 The rules read the object's name tag (FIRE, TRAF, EMS, WORK, EVNT, INFO, or a weather tag such as
@@ -67,7 +68,7 @@ def kind_of(name, source=""):
     if source == "nws" and name[:3] in WX_TAGS:
         return "weather", name[:3]
     for tag, kind in (("FIRE", "fire"), ("TRAF", "traffic"), ("WORK", "work"), ("EVNT", "event"),
-                      ("INFO", "info"), ("EMS", "ems")):
+                      ("INFO", "info"), ("EMS", "ems"), ("RIV", "water")):
         if name.startswith(tag) and len(name) > len(tag):
             return kind, tag
     if name[:3] in WX_TAGS and len(name) >= 6 and name[3:6].isalpha():
@@ -110,6 +111,13 @@ def level_of(name, comment, source=""):
         if m:
             return "high", [what, f"serious: {m.group(0).lower()}"], True
         return "medium", [what], True
+    if kind == "water":                                  # a river or tide gauge (aprs_water.py)
+        for word, level in (("MAJOR FLOOD", "critical"), ("MODERATE FLOOD", "high"), ("MINOR FLOOD", "medium")):
+            if text.startswith(word):
+                return level, [f"gauge at {word.lower()} stage"], True
+        if text.startswith("LOW WATER"):
+            return "low", ["gauge at or below its low-water mark"], True
+        return "low", ["gauge near flood stage"], True
     if kind == "work":
         if CLOSED.search(text) and "RAMP" not in text:
             return "medium", ["roadwork with the road closed"], True

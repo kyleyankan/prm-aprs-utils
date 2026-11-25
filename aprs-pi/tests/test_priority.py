@@ -36,6 +36,14 @@ class Levels(unittest.TestCase):
         ]:
             self.assertEqual(self.level(name, text), want, (name, text))
 
+    def test_river_gauges_are_rated_by_their_flood_category(self):
+        for text, want in (("MAJOR FLOOD 12.1ft Schuylkill River at Norristown @21:15", "critical"),
+                           ("MODERATE FLOOD 9.3ft Maurice River at Bivalve @15:00", "high"),
+                           ("MINOR FLOOD 9.7ft Delaware River at Burlington @09:00", "medium"),
+                           ("NEAR FLOOD 5.6ft Schuylkill River near Philadelphia @19:00", "low"),
+                           ("LOW WATER -0.3ft Delaware River at New Hope @20:45", "low")):
+            self.assertEqual(self.level("RIVBDRN4", text), want, text)
+
     def test_street_names_do_not_make_a_crash_a_building_fire(self):
         self.assertEqual(self.level("TRAF1", "VEHICLE ACCIDENT SCHOOLHOUSE RD/COMMERCIAL DR"), "medium")
         self.assertEqual(self.level("FIRE1", "VEHICLE ACCIDENT OLD FORGE RD/BARN RD (LIMERICK)"), "medium")

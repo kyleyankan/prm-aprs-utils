@@ -25,6 +25,19 @@ What goes on the air, and how often
     them out.
   * If the feeder cannot be reached, nothing is transmitted and nothing is killed.
 
+Auto mode (--auto): carry everything in your radius, a little at a time
+  Without --auto the script carries a short list (medium and above, ten objects).  With it, it
+  asks for every object in the radius, whatever its level, and works through them slowly: at
+  most --burst packets (default 2, never more than 3) go out per poll.  What goes first:
+    1. kills, so nothing this station put on the air is left behind;
+    2. bulletins for critical objects;
+    3. objects, the most important level first.  Within a level, a new or changed object goes
+       before one that is only due for its --refresh repeat, and the one sent longest ago first.
+  So a new building fire jumps ahead of the roadwork still waiting, and the low-importance
+  objects go out only when nothing more important is waiting.  On a busy day some of them may
+  wait a long time or never be sent; that is the intent.  --min and --max-objects still limit
+  the list if you give them.
+
 How the packets look on the air
   They are sent in APRS third-party form, from YOUR callsign:
       W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4007.80N/07519.80WdBUILDING FIRE ...
@@ -50,7 +63,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "1.1"
+VERSION = "1.2"
 TOCALL = "APZIFD"                 # APZ... = experimental software; change with --tocall
 USER_AGENT = f"aprs-radio/{VERSION} (Incident Feeder RF gateway)"
 CALL_OK = re.compile(r"[A-Z0-9]{1,6}(-([0-9]|1[0-5]))?")
@@ -271,6 +284,55 @@ class Carried:
                 out.append(("refresh", name, rf))
         return out
 
+    def plan_auto(self, packets, now, refresh, max_objects=None, bulletins=True):
+        """Auto mode: everything that needs transmitting, most urgent first (the caller sends only the
+        first few).  Kills, then bulletins, then objects by level; within a level new or changed before
+        a repeat, then the one sent longest ago, then the feeder's score."""
+        wanted, kills, notices = {}, {}, {}
+        for p in packets:
+            rf = p.get("rf") if isinstance(p, dict) else None
+            if not (isinstance(rf, str) and len(rf) <= MAX_INFO and rf.isascii()):
+                continue
+            if p.get("bulletin"):
+                if bulletins and bulletin_of(rf):
+                    notices.setdefault(bulletin_of(rf), rf)
+                continue
+            obj = object_of(rf)
+            if not obj:
+                continue
+            _start, name, live = obj
+            if not live:
+                kills[name] = rf
+            elif name not in wanted:
+                level = LEVELS.index(p["level"]) if p.get("level") in LEVELS else 1
+                score = p["score"] if isinstance(p.get("score"), (int, float)) else 0
+                wanted[name] = (rf, level, score)
+        if max_objects is not None:                 # keep the most important ones
+            keep = sorted(wanted, key=lambda n: (-wanted[n][1], -wanted[n][2]))[:max(0, max_objects)]
+            wanted = {n: wanted[n] for n in keep}
+        queue = []
+        for name, rec in self.objects.items():
+            if name not in wanted:
+                queue.append(((0, 0, 0, rec["sent"], 0), "kill" if name in kills else "dropped", name,
+                              kills.get(name) or kill_of(rec["rf"])))
+        self.bulletins = {n: b for n, b in self.bulletins.items() if n in notices}
+        for slot, rf in notices.items():
+            rec = self.bulletins.get(slot)
+            if rec is None or rec["rf"] != rf:
+                queue.append(((1, 0, 0, 0, 0), "bulletin", slot, rf))
+            elif now - rec["sent"] >= refresh:
+                queue.append(((1, 0, 1, rec["sent"], 0), "bulletin again", slot, rf))
+        for name, (rf, level, score) in wanted.items():
+            rec = self.objects.get(name)
+            if rec is None:
+                queue.append(((2, -level, 0, 0, -score), "new", name, rf))
+            elif body_of(rec["rf"]) != body_of(rf):
+                queue.append(((2, -level, 0, rec["sent"], -score), "changed", name, rf))
+            elif now - rec["sent"] >= refresh:
+                queue.append(((2, -level, 1, rec["sent"], -score), "refresh", name, rf))
+        queue.sort(key=lambda q: (q[0], q[2]))
+        return [(why, name, rf) for _key, why, name, rf in queue]
+
     def sent(self, reason, name, rf, now):
         if reason.startswith("bulletin"):
             self.bulletins[name] = {"rf": rf, "sent": now}
@@ -318,8 +380,12 @@ class Gateway:
             print(f"# could not get the packet list ({e}); nothing transmitted, nothing killed", file=sys.stderr, flush=True)
             return 0
         now = time.time() if now is None else now
-        plan = self.carried.plan(packets, now, a.refresh * 60, a.max_objects, not a.no_bulletins)
-        todo, waiting = plan[:a.max_per_poll], len(plan) - min(len(plan), a.max_per_poll)
+        if a.auto:
+            plan = self.carried.plan_auto(packets, now, a.refresh * 60, a.max_objects, not a.no_bulletins)
+        else:
+            plan = self.carried.plan(packets, now, a.refresh * 60, a.max_objects, not a.no_bulletins)
+        most = a.burst if a.auto else a.max_per_poll
+        todo, waiting = plan[:most], len(plan) - min(len(plan), most)
         n = 0
         try:
             for i, (reason, name, rf) in enumerate(todo):
@@ -349,7 +415,9 @@ class Gateway:
         a = self.args
         mode = f"transmitting through the {self.tnc.describe()}" if a.transmit else "print-only: nothing is transmitted"
         print(f"# aprs_radio {VERSION} for {a.callsign} ({mode})\n# asking {self.url}\n"
-              f"# every {a.poll}s; at most {a.max_objects} objects, {a.max_per_poll} packets per poll, "
+              f"# every {a.poll}s; "
+              + (f"auto mode: everything at {a.min} and above, {a.burst} packet(s) per poll, most important first, "
+                 if a.auto else f"at most {a.max_objects} objects, {a.max_per_poll} packets per poll, ") +
               f"{a.gap:g}s apart; refresh every {a.refresh:g} min", file=sys.stderr, flush=True)
         try:
             while True:
@@ -370,9 +438,15 @@ def parse_args(argv=None):
     ap.add_argument("--lat", type=float, required=True, help="latitude of the centre of your area, e.g. 40.12")
     ap.add_argument("--lon", type=float, required=True, help="longitude, negative for west, e.g. -75.34")
     ap.add_argument("--miles", type=float, default=10, help="radius around that point (default 10)")
-    ap.add_argument("--min", default="medium", choices=LEVELS,
-                    help="least important level to carry: low, medium, high or critical (default medium)")
-    ap.add_argument("--max-objects", type=int, default=10, help="most objects to keep on the air at once (default 10)")
+    ap.add_argument("--auto", action="store_true",
+                    help="carry every object in the radius, a few packets per poll, the most important first")
+    ap.add_argument("--burst", type=int, default=2,
+                    help="with --auto: packets to transmit per poll, 1 to 3 (default 2)")
+    ap.add_argument("--min", default=None, choices=LEVELS,
+                    help="least important level to carry: low, medium, high or critical "
+                         "(default medium; low with --auto)")
+    ap.add_argument("--max-objects", type=int, default=None,
+                    help="most objects to keep on the air at once (default 10; no limit with --auto)")
     ap.add_argument("--transmit", action="store_true", help="really send to the TNC (without it, packets are only printed)")
     ap.add_argument("--kiss-tcp", default="127.0.0.1:8001", metavar="HOST:PORT",
                     help="KISS over TCP, for Direwolf and other software TNCs (default 127.0.0.1:8001)")
@@ -405,7 +479,12 @@ def parse_args(argv=None):
     if not re.match(r"https?://", a.server):
         ap.error("--server must start with http:// or https://")
     a.poll, a.refresh, a.gap = max(60, a.poll), max(10.0, a.refresh), max(2.0, a.gap)
-    a.max_objects, a.max_per_poll = max(0, a.max_objects), max(1, a.max_per_poll)
+    a.min = a.min or ("low" if a.auto else "medium")
+    if a.max_objects is None:
+        a.max_objects = None if a.auto else 10
+    else:
+        a.max_objects = max(0, a.max_objects)
+    a.max_per_poll, a.burst = max(1, a.max_per_poll), max(1, min(3, a.burst))
     return a
 
 
