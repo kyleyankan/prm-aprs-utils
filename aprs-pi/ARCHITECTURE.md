@@ -346,6 +346,21 @@ flowchart TD
   every 2 minutes, so a re-send goes out on the first poll after the time is up.
 - **Storms move:** a tracked storm's position changes every poll, so it is sent every poll.
 
+### What the sender does on its own
+
+Three things are decided by the sender and not by any script. Each has an option in `EXTRA_send`.
+
+| What | Rule | Option |
+|---|---|---|
+| Maximum age | An object on the air that no script has handed over for 2 hours gets a kill packet (reason `stale`). Its next hand-over is a new object. Nothing is taken off in the first 10 minutes after a start. | `--max-quiet-minutes` (minimum 30; 0 = never) |
+| Duplicates | A live traffic object from a county dispatch feed and one from a road agency within 0.3 miles are one incident. The more important is sent; at the same level the county's. The other is held back, or killed if it is on the air. | `--merge-miles` (0 = off) |
+| Bulletins | While an object rated critical is on the air, `:BLN1     :<its text>` is sent and repeated like an object. Slots BLN1 to BLN3; a slot is free when its object ends. `/api/packets` lists the bulletin of each critical object in the area asked for, so `aprs_radio.py` puts them on RF too. | `--bulletins` (0 = off, at most 9) |
+
+The maximum age is why a failed fetch still kills nothing at first but cannot leave objects up for
+ever: a script that cannot read its source hands nothing over, and two hours later the sender takes
+that source's objects off. The page shows this coming: a source with no good poll for ten minutes
+is marked, with the time its objects will go.
+
 ### Importance and the minimum level
 
 `aprs_priority.py` rates every object, and three places use the rating: the sender, the web map
@@ -447,10 +462,13 @@ no connection. This is the safe test mode and the default.
 
 | Address | Gives |
 |---|---|
-| `/` | the map and editor page |
+| `/` | the map and editor page (through the proxy: the read-only map) |
+| `/map` | a read-only map for anyone: what is on APRS-IS, with level and source. Public |
+| `GET /api/public` | the read-only map's data: objects on APRS-IS only, no gateways, services or edits. Public, rebuilt at most every 15 s |
 | `GET /api/objects` | every live object with its source, level, score, reasons and send times; counts per level; the minimum level |
 | `GET /api/packets?lat=&lon=&miles=` | packets near a point for a radio to transmit; options `min`, `kills`, `limit`, `since`, `via`, `format=text`. The only address that answers through the public proxy |
 | `GET /api/clients` | the stations that asked `/api/packets` in the last 7 days |
+| `POST /api/forget-client` | takes one entry (`{callsign, lat, lon}`) or all (`{"all": true}`) off the gateways layer; a station that asks again reappears |
 | `POST /api/settings` | sets the minimum level for sending: `{"min_level": "medium"}` |
 | `POST /api/edit`, `/api/delete`, `/api/restore`, `/api/create` | corrections and custom objects from the page |
 | `GET /api/aprs` | other people's objects, stations and messages heard nearby |

@@ -4,6 +4,8 @@
 
 Nothing here reaches the real APRS-IS: the connection tests talk to a fake server on 127.0.0.1.
 """
+import contextlib
+import io
 import json
 import os
 import socketserver
@@ -315,6 +317,122 @@ class OneConnection(unittest.TestCase):
         aprs_send.hand_over("montco", CALL, [obj("FIRE1")], folder=self.outbox)
         self.assertEqual(sender.step(1000), 1)
         self.assertEqual(self.server.logins, [])
+
+
+class AgeDuplicatesBulletins(unittest.TestCase):
+    """What the sender does on its own account: maximum age, one object per incident, bulletins."""
+
+    def setUp(self):                    # print-only senders: these tests jump the clock, which a live link would not survive
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.outbox, self.out = os.path.join(self.dir.name, "outbox"), []
+        self.sender = aprs_send.Sender(CALL, False, self.outbox, self.state(), None)
+
+    def step(self, now, sender=None):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            n = (sender or self.sender).step(now)
+        self.out += buf.getvalue().splitlines()
+        return n
+
+    def wait_lines(self, _n):
+        return list(self.out)
+
+    def state(self):
+        return os.path.join(self.dir.name, "state.json")
+
+    def test_an_object_nobody_hands_over_for_two_hours_is_killed_and_comes_back_as_new(self):
+        fire = obj("FIRE1")
+        aprs_send.hand_over("montco", CALL, [fire], folder=self.outbox)
+        self.assertEqual(self.step(1000), 1)
+        self.assertEqual(self.step(1000 + 119 * MIN), 0)                 # quiet, but not for long enough
+        self.assertEqual(self.step(1000 + 121 * MIN), 1)
+        self.assertEqual(self.wait_lines(2)[1], f"{CALL}>APRS,TCPIP*:{obj('FIRE1', live=False, comment='')}")
+        self.assertTrue(aprs_send.send_times(self.state())["FIRE1"]["stale"])
+        self.assertEqual(aprs_send.sender_info(self.state())["max_quiet"], 7200)
+        self.assertEqual(self.step(1000 + 122 * MIN), 0)                 # the kill is sent once
+        aprs_send.hand_over("montco", CALL, [fire], folder=self.outbox)         # the source answers again
+        self.assertEqual(self.step(1000 + 123 * MIN), 1)
+        self.assertEqual(self.wait_lines(3)[2], f"{CALL}>APRS,TCPIP*:{fire}")
+
+    def test_nothing_is_taken_off_straight_after_a_restart_or_with_the_maximum_age_off(self):
+        aprs_send.hand_over("montco", CALL, [obj("FIRE1")], folder=self.outbox)
+        self.assertEqual(self.step(1000), 1)
+        late = 1000 + 300 * MIN
+        again = aprs_send.Sender(CALL, False, self.outbox, self.state(), None)
+        self.assertEqual(self.step(late, again), 0)                                    # just started: the scripts get time
+        self.assertEqual(self.step(late + 11 * MIN, again), 1)                         # still nobody asked: now it goes
+        never = aprs_send.Sender(CALL, False, self.outbox, None, None, max_quiet=0)
+        aprs_send.hand_over("montco", CALL, [obj("FIRE2")], folder=self.outbox)
+        self.step(1000, never)
+        self.assertEqual(self.step(1000 + 3000 * MIN, never), 0)
+
+    def test_one_crash_from_the_county_and_from_511_is_sent_once(self):
+        county = obj("TRAF1", comment="VEHICLE ACCIDENT MAIN ST/OAK ST")
+        road = obj("TRAF2", comment="CRASH ON MAIN ST AT OAK ST", lat="4007.25N")           # 0.06 miles away
+        far = obj("TRAF4", comment="CRASH ON US 202", lat="4012.00N")
+        aprs_send.hand_over("montco", CALL, [county], folder=self.outbox)
+        aprs_send.hand_over("pa511", CALL, [road, far], folder=self.outbox)
+        self.assertEqual(self.step(1000), 2)                              # the county's and the far one
+        self.assertEqual(sorted(self.wait_lines(2)), sorted(f"{CALL}>APRS,TCPIP*:{p}" for p in (county, far)))
+        held = aprs_send.send_times(self.state())["TRAF2"]
+        self.assertEqual((held["held"], held["dup"]), (True, "TRAF1"))
+        aprs_send.hand_over("pa511", CALL, [obj("TRAF2", live=False, comment="")], folder=self.outbox)
+        self.assertEqual(self.step(1060), 0)                              # never on the air: no kill either
+
+    def test_the_more_important_report_wins_and_the_other_is_taken_off(self):
+        county = obj("TRAF1", comment="VEHICLE ACCIDENT MAIN ST/OAK ST")
+        closed = obj("TRAF3", comment="CRASH ON MAIN ST ALL LANES CLOSED", lat="4007.25N")  # rated high
+        aprs_send.hand_over("montco", CALL, [county], folder=self.outbox)
+        self.assertEqual(self.step(1000), 1)
+        aprs_send.hand_over("pa511", CALL, [closed], folder=self.outbox)
+        aprs_send.hand_over("montco", CALL, [county], folder=self.outbox)
+        self.assertEqual(self.step(1120), 2)
+        self.assertEqual(sorted(self.wait_lines(3)[1:]),
+                         sorted(f"{CALL}>APRS,TCPIP*:{p}" for p in (closed, obj("TRAF1", live=False, comment=""))))
+        aprs_send.hand_over("pa511", CALL, [obj("TRAF3", live=False, comment="")], folder=self.outbox)   # the closure ends
+        aprs_send.hand_over("montco", CALL, [county], folder=self.outbox)
+        self.assertEqual(self.step(1240), 2)                              # its kill, and the county's is back
+        merged_off = aprs_send.Sender(CALL, False, self.outbox, None, None, merge_miles=0)
+        aprs_send.hand_over("montco", CALL, [county], folder=self.outbox)
+        aprs_send.hand_over("pa511", CALL, [closed], folder=self.outbox)
+        self.assertEqual(self.step(2000, merged_off), 2)
+
+    def test_two_reports_from_the_same_kind_of_source_are_both_sent(self):
+        aprs_send.hand_over("montco", CALL, [obj("TRAF1", comment="VEHICLE ACCIDENT MAIN ST")], folder=self.outbox)
+        aprs_send.hand_over("bucks", CALL, [obj("TRAF5", comment="VEHICLE ACCIDENT MAIN ST")], folder=self.outbox)
+        aprs_send.hand_over("pa511", CALL, [obj("WORK1", comment="ROADWORK ON MAIN ST")], folder=self.outbox)
+        self.assertEqual(self.step(1000), 3)
+
+    def test_a_critical_object_gets_a_bulletin_and_gives_the_slot_back(self):
+        tor = obj("TORPHI01", comment="Tornado Warning til 9:15PM }outline")
+        trap = obj("FIRE9", comment="BUILDING FIRE ENTRAPMENT MAIN ST")
+        aprs_send.hand_over("nws", CALL, [tor, obj("SVRPHI02", comment="Severe Thunderstorm Warning")], folder=self.outbox)
+        aprs_send.hand_over("montco", CALL, [trap], folder=self.outbox)
+        self.assertEqual(self.step(1000), 5)                              # three objects, two bulletins
+        lines = self.wait_lines(5)
+        self.assertIn(f"{CALL}>APRS,TCPIP*::BLN1     :Tornado Warning til 9:15PM", lines)
+        self.assertIn(f"{CALL}>APRS,TCPIP*::BLN2     :BUILDING FIRE ENTRAPMENT MAIN ST", lines)
+        self.assertEqual(aprs_send.sender_info(self.state())["bulletins"], {"1": "TORPHI01", "2": "FIRE9"})
+        aprs_send.hand_over("nws", CALL, [tor], folder=self.outbox)
+        self.assertEqual(self.step(1120), 0)                              # unchanged: not repeated yet
+        aprs_send.hand_over("nws", CALL, [tor], folder=self.outbox)
+        self.assertEqual(self.step(1000 + 27 * MIN), 2)                   # object and bulletin repeat together
+        aprs_send.hand_over("nws", CALL, [obj("TORPHI01", live=False, comment="")], folder=self.outbox)
+        self.assertEqual(self.step(1000 + 28 * MIN), 1)                   # the kill; no bulletin for it
+        self.assertEqual(self.sender.book.bulletins, {"2": "FIRE9    "})
+        aprs_send.hand_over("chesco", CALL, [obj("FIRE8", comment="EXPLOSION OAK ST")], folder=self.outbox)
+        self.assertEqual(self.step(1000 + 29 * MIN), 2)
+        self.assertEqual(self.sender.book.bulletins["1"], "FIRE8    ")           # the free slot is used again
+
+    def test_bulletins_stop_at_the_number_of_slots_and_can_be_switched_off(self):
+        one = aprs_send.Sender(CALL, False, self.outbox, None, None, bulletins=1)
+        aprs_send.hand_over("montco", CALL, [obj("FIRE1", comment="EXPLOSION A ST"), obj("FIRE2", comment="EXPLOSION B ST")],
+                            folder=self.outbox)
+        self.assertEqual(self.step(1000, one), 3)                                      # two objects, one bulletin
+        off = aprs_send.Sender(CALL, False, self.outbox, None, None, bulletins=0)
+        aprs_send.hand_over("montco", CALL, [obj("FIRE1", comment="EXPLOSION A ST")], folder=self.outbox)
+        self.assertEqual(self.step(1000, off), 1)
 
 
 if __name__ == "__main__":

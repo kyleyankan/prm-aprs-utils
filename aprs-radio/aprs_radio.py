@@ -18,6 +18,11 @@ What goes on the air, and how often
   * At most --max-objects (default 10) are carried at once, the most important first, and at
     most --max-per-poll (default 6) packets go out per poll, --gap seconds apart (default 8).
     A shared 1200 baud channel cannot take much more; start small.
+  * When an object rated critical is in your area, the feeder also lists a bulletin for it
+    (":BLN1     :Tornado Warning ...").  It is transmitted when new or changed and again every
+    --refresh minutes, ahead of the objects, and counts towards --max-per-poll.  A bulletin
+    has no kill: when its object ends it is simply no longer sent.  --no-bulletins leaves
+    them out.
   * If the feeder cannot be reached, nothing is transmitted and nothing is killed.
 
 How the packets look on the air
@@ -45,7 +50,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "1.0"
+VERSION = "1.1"
 TOCALL = "APZIFD"                 # APZ... = experimental software; change with --tocall
 USER_AGENT = f"aprs-radio/{VERSION} (Incident Feeder RF gateway)"
 CALL_OK = re.compile(r"[A-Z0-9]{1,6}(-([0-9]|1[0-5]))?")
@@ -188,18 +193,30 @@ def body_of(rf):
     return rf[start + 18:]
 
 
+BULLETIN = re.compile(r"\}[A-Z0-9-]+>[^:]+::(BLN[0-9A-Z]) {5}:.+")
+
+
+def bulletin_of(rf):
+    """'BLN1' for a general bulletin in third-party form, else None."""
+    m = BULLETIN.fullmatch(rf)
+    return m.group(1) if m else None
+
+
 class Carried:
     """The objects this station has put on the air, kept across restarts."""
 
     def __init__(self, path=None):
         self.path, self.objects = path, {}        # name -> {rf, sent}
+        self.bulletins = {}                       # BLN1, BLN2, ... -> {rf, sent}
         if path:
             try:
                 with open(path) as f:
                     raw = json.load(f)
                 self.objects = {n: {"rf": str(o["rf"]), "sent": float(o["sent"])}
                                 for n, o in raw["objects"].items() if object_of(str(o["rf"]))}
-            except (OSError, ValueError, KeyError, TypeError):
+                self.bulletins = {n: {"rf": str(b["rf"]), "sent": float(b["sent"])}
+                                  for n, b in (raw.get("bulletins") or {}).items() if bulletin_of(str(b["rf"]))}
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
                 pass
 
     def save(self):
@@ -207,16 +224,23 @@ class Carried:
             return
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"objects": self.objects}, f, indent=1)
+            json.dump({"objects": self.objects, "bulletins": self.bulletins}, f, indent=1)
         os.replace(tmp, self.path)
 
-    def plan(self, packets, now, refresh, max_objects):
-        """[(reason, name, rf)] to transmit, in order: kills first, then the feeder's own order
-        (most important first).  packets: the feeder's list, each with 'rf'."""
-        wanted, kills = [], {}
+    def plan(self, packets, now, refresh, max_objects, bulletins=True):
+        """[(reason, name, rf)] to transmit, in order: kills first, then bulletins, then the feeder's own
+        order (most important first).  packets: the feeder's list, each with 'rf'; an entry marked
+        'bulletin' is a bulletin for a critical object in our area."""
+        wanted, kills, notices = [], {}, {}
         for p in packets:
             rf = p.get("rf") if isinstance(p, dict) else None
-            obj = object_of(rf) if isinstance(rf, str) and len(rf) <= MAX_INFO and rf.isascii() else None
+            if not (isinstance(rf, str) and len(rf) <= MAX_INFO and rf.isascii()):
+                continue
+            if p.get("bulletin"):
+                if bulletins and bulletin_of(rf):
+                    notices.setdefault(bulletin_of(rf), rf)
+                continue
+            obj = object_of(rf)
             if not obj:
                 continue
             _start, name, live = obj
@@ -230,6 +254,13 @@ class Carried:
         for name, rec in self.objects.items():
             if name not in names:                   # killed by the feeder, or no longer on our list
                 out.append(("kill" if name in kills else "dropped", name, kills.get(name) or kill_of(rec["rf"])))
+        self.bulletins = {n: b for n, b in self.bulletins.items() if n in notices}    # ended: nothing to kill
+        for slot, rf in sorted(notices.items()):
+            rec = self.bulletins.get(slot)
+            if rec is None or rec["rf"] != rf:
+                out.append(("bulletin", slot, rf))
+            elif now - rec["sent"] >= refresh:
+                out.append(("bulletin again", slot, rf))
         for name, rf in wanted:
             rec = self.objects.get(name)
             if rec is None:
@@ -241,7 +272,9 @@ class Carried:
         return out
 
     def sent(self, reason, name, rf, now):
-        if reason in ("kill", "dropped"):
+        if reason.startswith("bulletin"):
+            self.bulletins[name] = {"rf": rf, "sent": now}
+        elif reason in ("kill", "dropped"):
             self.objects.pop(name, None)
         else:
             self.objects[name] = {"rf": rf, "sent": now}
@@ -263,7 +296,8 @@ def fetch(url, timeout=20):
         data = json.loads(r.read().decode("utf-8", "replace"))
     if not isinstance(data, dict) or not isinstance(data.get("packets"), list):
         raise ValueError("the answer is not a packet list")
-    return data["packets"]
+    notices = data.get("bulletins") if isinstance(data.get("bulletins"), list) else []
+    return data["packets"] + [dict(b, bulletin=True) for b in notices if isinstance(b, dict)]
 
 
 # --------------------------------------------------------------------------
@@ -284,7 +318,7 @@ class Gateway:
             print(f"# could not get the packet list ({e}); nothing transmitted, nothing killed", file=sys.stderr, flush=True)
             return 0
         now = time.time() if now is None else now
-        plan = self.carried.plan(packets, now, a.refresh * 60, a.max_objects)
+        plan = self.carried.plan(packets, now, a.refresh * 60, a.max_objects, not a.no_bulletins)
         todo, waiting = plan[:a.max_per_poll], len(plan) - min(len(plan), a.max_per_poll)
         n = 0
         try:
@@ -351,6 +385,8 @@ def parse_args(argv=None):
     ap.add_argument("--refresh", type=float, default=30, help="re-send an unchanged object after this many minutes (default 30, minimum 10)")
     ap.add_argument("--gap", type=float, default=8, help="seconds between two transmissions (default 8, minimum 2)")
     ap.add_argument("--max-per-poll", type=int, default=6, help="most packets to transmit per poll (default 6)")
+    ap.add_argument("--no-bulletins", action="store_true",
+                    help="do not transmit the bulletins the feeder sends for critical objects in your area")
     ap.add_argument("--state-file", default="aprs_radio_state.json", help="where what was transmitted is remembered")
     ap.add_argument("--once", action="store_true", help="poll once and exit")
     a = ap.parse_args(argv)

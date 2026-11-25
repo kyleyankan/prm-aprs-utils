@@ -38,6 +38,30 @@ Sending to APRS-IS (one connection)
      Upgrading: copy the new files, then ./aprs_ctl.sh restart. Everything is sent once at the
      first start, because the sender does not yet know what is on the air.
 
+What the sender does on its own (maximum age, duplicates, bulletins)
+     Maximum age. An object on the air that no script has handed over for 2 hours is killed, so
+     a source that stays down does not leave its objects on everyone's map. They come back as
+     new objects on the source's next good poll. Nothing is taken off in the first 10 minutes
+     after the sender starts. The web page marks a source with no good poll for 10 minutes and
+     says when its objects will come off.
+     aprs.env: EXTRA_send="--max-quiet-minutes 180" changes it (minimum 30; 0 = never).
+
+     Duplicates. A crash often arrives twice: from a county dispatch feed (montco, chesco,
+     bucks) and from a road agency (pa511, nj511). When a traffic object from each kind is
+     within 0.3 miles of the other, only the more important is sent; at the same level the
+     county's is kept. The other is held back (killed if it was on the air) and the page says
+     which object is sent instead. Two reports from the same kind of source are never merged.
+     aprs.env: EXTRA_send="--merge-miles 0.5" changes the distance (0 = off).
+
+     Bulletins. While an object rated critical is on APRS-IS, a general bulletin with its text
+     goes out too (":BLN1     :Tornado Warning ..."), repeated every 26 minutes like the object.
+     At most 3 are in use at once, BLN1 to BLN3; a slot is free again when its object ends, and
+     a fourth critical object gets no bulletin. /api/packets lists, under "bulletins", the
+     bulletin of each critical object inside the area asked for (bulletins=0 leaves them out),
+     and aprs_radio.py 1.1 transmits them, so they reach radios as well.
+     aprs.env: EXTRA_send="--bulletins 0" switches them off (at most 9).
+     Several options go in one line: EXTRA_send="--max-quiet-minutes 180 --bulletins 0".
+
 Importance levels, and choosing what is sent
      Every object is rated critical, high, medium or low from its name tag and the wording of its
      text (the rules are in aprs_priority.py, with examples at the top of the file).
@@ -63,6 +87,7 @@ Packets for radios (which of our objects are near a point)
                since=<unix time>  only objects new or changed since then
                via=W3XYZ-10       adds "rf": the packet in third-party form for that gateway
                format=text        one packet per line instead of JSON
+               bulletins=0        leave out the bulletins for critical objects in the area
      Each JSON entry has name, live, lat, lon, miles, source, sent, changed, and the packet as
        info   ;FIRE7K2QX*241740z4007.80N/07519.80Wd...            the object itself
        tnc2   K3YLE-15>APRS,TCPIP*:;FIRE7K2QX*...                 as it was sent to APRS-IS
@@ -80,11 +105,18 @@ Radio gateways (who is asking for packets)
      asked for. Purple and solid = asked in the last 10 minutes; grey and dashed = quiet since.
      Click one for its radius, level, last request, request count and address.
      The callsign is whatever the request gave as via=; it is not checked.
+     Each popup has "Remove from this layer" for that entry and "Remove all" for every entry
+     (test requests, a station that has moved). Nothing is blocked: a station that asks again
+     is listed again from that moment.
      http://<pi address>:8080/api/clients      the same as JSON.  Kept in data/api_clients.json.
 
 Public address (reverse proxy)
-     https://aprs-incidents.phlm.sh passes requests to this web service. Through it, ONLY
-     /api/packets answers; the map, the editor, the settings and every other address return 403.
+     https://aprs-incidents.phlm.sh passes requests to this web service. Through it, ONLY these
+     answer: /map (a read-only map for anyone; / shows it too), /api/public (its data) and
+     /api/packets. The editor page, the settings and every other address return 403.
+     The read-only map lists the objects that are on APRS-IS with their level and source. It has
+     no buttons that change anything, and its data leaves out held-back objects, the radio
+     gateways and the services. On your own network it is at http://<pi address>:8080/map.
      The web service tells the two apart by the X-Forwarded-For header that the proxy adds, so
      keep the proxy adding it. On your own network, http://<pi address>:8080/ works in full.
      aprs.env: WEB_PROXIED=all lifts the limit. Do that only if the proxy itself asks for a login,

@@ -137,7 +137,7 @@ class FeederHandler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.server.requests.append((self.path, self.headers.get("User-Agent")))
-        body = json.dumps({"packets": self.server.packets}).encode() if self.server.status == 200 else b"{}"
+        body = json.dumps({"packets": self.server.packets, "bulletins": getattr(self.server, "bulletins", [])}).encode() if self.server.status == 200 else b"{}"
         self.send_response(self.server.status)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -276,6 +276,48 @@ class Serial(unittest.TestCase):
             got += os.read(master, 4096)
         tnc.close()
         self.assertEqual(got, frame)
+
+
+def bln(slot, text="Tornado Warning til 9:15PM"):
+    return {"rf": f"}}{FEEDER}>APRS,TCPIP,{ME}*::BLN{slot}     :{text}", "bulletin": True}
+
+
+class Bulletins(unittest.TestCase):
+    def setUp(self):
+        self.c = R.Carried()
+
+    go = Plan.go
+
+    def test_a_bulletin_is_sent_when_new_or_changed_and_again_after_the_refresh_time(self):
+        self.assertEqual(R.bulletin_of(bln(1)["rf"]), "BLN1")
+        self.assertIsNone(R.bulletin_of(rf("FIRE1")))
+        self.assertEqual(self.go([bln(1)], 0), [("bulletin", "BLN1")])
+        self.assertEqual(self.go([bln(1)], 120), [])
+        self.assertEqual(self.go([bln(1, "Tornado Warning til 9:45PM")], 240), [("bulletin", "BLN1")])
+        self.assertEqual(self.go([bln(1, "Tornado Warning til 9:45PM")], 240 + 1800), [("bulletin again", "BLN1")])
+
+    def test_bulletins_go_after_kills_and_before_objects_and_end_without_a_kill(self):
+        self.go(listing(rf("FIRE1")), 0)
+        plan = self.go(listing(rf("FIRE1", live=False), rf("TOR1", "Tornado Warning")) + [bln(1), bln(2, "EXPLOSION OAK ST")], 120)
+        self.assertEqual(plan, [("kill", "FIRE1"), ("bulletin", "BLN1"), ("bulletin", "BLN2"), ("new", "TOR1")])
+        self.assertEqual(self.go(listing(rf("TOR1", "Tornado Warning")), 240), [])      # the bulletins ended: nothing sent
+        self.assertEqual(self.c.bulletins, {})
+        self.assertEqual(self.go(listing(rf("TOR1", "Tornado Warning")) + [bln(1)], 360), [("bulletin", "BLN1")])   # back: new again
+
+    def test_bulletins_can_be_left_out_and_junk_is_ignored(self):
+        self.assertEqual(self.c.plan([bln(1)], 0, 1800, 10, bulletins=False), [])
+        junk = [{"rf": ":BLN1     :not third-party", "bulletin": True}, {"rf": bln(1)["rf"] + "\u00e9", "bulletin": True},
+                {"rf": f"}}{FEEDER}>APRS,TCPIP,{ME}*::W3XYZ    :a message to one station", "bulletin": True}]
+        self.assertEqual(self.go(junk, 0), [])
+
+    def test_bulletins_survive_a_restart(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "state.json")
+            c = R.Carried(path)
+            c.sent("bulletin", "BLN1", bln(1)["rf"], 100.0)
+            c.save()
+            self.assertEqual(R.Carried(path).bulletins, {"BLN1": {"rf": bln(1)["rf"], "sent": 100.0}})
+            self.assertEqual(R.Carried(path).plan([bln(1)], 200, 1800, 10), [])
 
 
 if __name__ == "__main__":

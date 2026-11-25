@@ -236,6 +236,32 @@ With the traffic of that day, "medium and above" would kill about 160 roadwork o
    - **Gateways layer** (same day): `/api/packets` requests are recorded (callsign given, point,
      radius, level, times, address; 7 days; `data/api_clients.json`) and drawn on the map.
    - `APZIFD` is an experimental destination; register a proper one if the script is published.
+   - **Added 2026-11-25** (all in `aprs_send.py` and `aprs_web.py`, with tests; not yet deployed
+     to the Pi when this was written):
+     - *Maximum age*: the sender kills an object nobody has handed over for 2 hours
+       (`--max-quiet-minutes`), after a 10-minute grace at start. This deliberately changes the old
+       rule that the sender never kills on its own. The page marks a source with no good poll for
+       10 minutes (state file not rewritten) and says when its objects go.
+     - *Duplicates*: a county dispatch traffic object and a road-agency one within 0.3 miles
+       (`--merge-miles`) are one incident; the higher level is sent, the county's on a tie, and
+       the other is held with the same mechanism as the minimum level (`dup` in the record).
+       Only TRAF objects, only across the two kinds of source. Not tried against live data: watch
+       for wrong merges on dense roads and for two crashes at one junction.
+     - *Bulletins*: `:BLNn     :text` for critical objects, slots BLN1-3 (`--bulletins`), kept in
+       `sender_state.json`. Later the same day: `/api/packets` gained a `bulletins` list (the
+       bulletin of each critical object within the radius; `bulletins=0` omits it; also in
+       `format=text`), and `aprs_radio.py` 1.1 transmits them in third-party form, after kills and
+       before objects, on the same new/changed/refresh rule, with no kill (`--no-bulletins` to
+       skip). Not yet seen with a real critical object or on the air.
+     - *Read-only map*: `/map` and `/api/public` are in `PUBLIC_PATHS`, and `/` through the proxy
+       shows the map. It loads Leaflet and OpenStreetMap tiles from the internet, like the editor.
+     - *Also 2026-11-25*: the read-only map has a Dark/Light button (same `aprs-theme` setting
+       as the editor page), and each entry on the gateways layer can be removed from its popup
+       (`POST /api/forget-client`, internal only; a station that asks again reappears). All of
+       the above is deployed to the Pi. Seen live so far: the map, feed-health data, the packet
+       list's `bulletins` field (empty). Not yet seen live: a merge, a bulletin, a stale kill.
+       Noticed on the live map: Chester County lists one crash twice, as a TRAF and a FIRE call
+       at the same junction; same-source pairs are not merged.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

@@ -3,6 +3,7 @@
   python3 -m unittest test_web        (from this folder; reads temporary files only, no network)
 """
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -176,9 +177,28 @@ class Gateways(unittest.TestCase):
         self.assertFalse(aprs_web.clients_snapshot(now=2000)["clients"][0]["active"])           # silent over ten minutes
         self.assertEqual(aprs_web.clients_snapshot(now=1000 + 8 * 86400)["clients"], [])
 
-    def test_through_a_proxy_only_the_packet_list_answers(self):
+    def test_an_entry_can_be_removed_and_a_station_that_asks_again_comes_back(self):
+        for call, lat in (("W3XYZ-10", 40.12), ("N3ABC-1", 39.95), ("", 40.5)):
+            self.get(f"/api/packets?lat={lat}&lon=-75.34&via={call}")
+        listed = lambda: sorted(c["callsign"] for c in json.loads(self.get("/api/clients")[1])["clients"])
+        self.assertEqual(self.get("/api/forget-client", method="POST", body={"callsign": "w3xyz-10", "lat": 40.12, "lon": -75.34})[0], 200)
+        self.assertEqual(listed(), ["", "N3ABC-1"])
+        aprs_web.CLIENTS.clear()
+        aprs_web.load_clients()                                                   # the removal was saved
+        self.assertEqual(listed(), ["", "N3ABC-1"])
+        self.assertEqual(self.get("/api/forget-client", method="POST", body={"callsign": "W3XYZ-10", "lat": 40.12, "lon": -75.34})[0], 404)
+        self.assertEqual(self.get("/api/forget-client", method="POST", body={"callsign": "N3ABC-1"})[0], 400)
+        self.assertEqual(self.get("/api/forget-client", method="POST", body={"callsign": "", "lat": 40.5, "lon": -75.34})[0], 200)
+        self.assertEqual(self.get("/api/forget-client", proxied=True, method="POST", body={"all": True})[0], 403)   # not from outside
+        self.assertEqual(listed(), ["N3ABC-1"])
+        self.get("/api/packets?lat=40.12&lon=-75.34&via=W3XYZ-10")                # it asks again
+        self.assertEqual(listed(), ["N3ABC-1", "W3XYZ-10"])
+        code, raw = self.get("/api/forget-client", method="POST", body={"all": True})
+        self.assertEqual((code, json.loads(raw)["removed"], listed()), (200, 2, []))
+
+    def test_through_a_proxy_only_the_packet_list_and_the_read_only_map_answer(self):
         self.assertEqual(self.get("/api/packets?lat=40.12&lon=-75.34", proxied=True)[0], 200)
-        for path in ("/", "/api/objects", "/api/clients", "/api/aprs", "/eink.png", "/nothing"):
+        for path in ("/index.html", "/api/objects", "/api/clients", "/api/aprs", "/eink.png", "/nothing"):
             self.assertEqual(self.get(path, proxied=True)[0], 403, path)
         for path, body in (("/api/settings", {"min_level": "critical"}), ("/api/delete", {"name": "FIRE1"}),
                            ("/api/create", {"name": "X1", "lat": 40, "lon": -75}), ("/api/packets", {})):
@@ -207,6 +227,107 @@ class Positions(unittest.TestCase):
     def test_distance(self):
         self.assertAlmostEqual(aprs_web.miles_between(40, -75, 41, -75), 69.1, delta=0.2)
         self.assertEqual(aprs_web.miles_between(40, -75, 40, -75), 0)
+
+
+class PublicMapAndFeedHealth(unittest.TestCase):
+    """The read-only map anyone may open, and the mark on a source that has stopped answering."""
+    setUp, get = Gateways.setUp, Gateways.get
+
+    def write_state(self, source, objects, age=0):
+        path = os.path.join(self.dir.name, f"{source}_live_state.json")
+        with open(path, "w") as f:
+            json.dump({"callsign": CALL, "objects": objects}, f)
+        when = os.path.getmtime(path) - age
+        os.utime(path, (when, when))
+
+    def test_the_public_map_shows_what_is_on_aprs_is_and_nothing_that_edits(self):
+        aprs_web.PUBLIC_CACHE[1] = None
+        self.write_state("montco", {"FIRE1": {"lat": 40.12, "lon": -75.34, "table": "/", "code": "d", "comment": "BUILDING FIRE MAIN ST"},
+                                    "FIRE2": {"lat": 40.13, "lon": -75.34, "table": "/", "code": "d", "comment": "FIRE ALARM OAK ST"}})
+        for path in ("/", "/map"):
+            code, page = self.get(path, proxied=True)
+            self.assertEqual(code, 200, path)
+            self.assertIn(b"Read-only view", page)
+            for word in (b"New object", b"/api/delete", b"/api/settings", b"/api/clients", b"/api/objects"):
+                self.assertNotIn(word, page)
+        code, raw = self.get("/api/public", proxied=True)
+        d = json.loads(raw)
+        self.assertEqual((code, d["count"], d["levels"]["high"], d["levels"]["low"]), (200, 2, 1, 1))
+        self.assertEqual(d["objects"][0]["name"], "FIRE1")                       # most important first
+        self.assertEqual(sorted(d["objects"][0]), ["comment", "lat", "level", "lon", "name", "score", "shape", "source",
+                                                   "source_label", "source_url", "updated"])
+        self.assertEqual(self.get("/api/public", proxied=True, method="POST", body={})[0], 403)
+        self.assertIn(b"New object", self.get("/")[1])                           # the editor is still at / on the inside
+
+    def test_objects_held_back_or_taken_off_are_not_on_the_public_map(self):
+        aprs_web.PUBLIC_CACHE[1] = None
+        aprs_web.ARGS.send = True
+        self.write_state("montco", {n: {"lat": 40.12, "lon": -75.34, "table": "/", "code": "d", "comment": "BUILDING FIRE"}
+                                    for n in ("FIRE1", "FIRE2", "FIRE3")})
+        book = aprs_send.Book(CALL, os.path.join(self.dir.name, aprs_send.STATE_FILE))
+        for name in ("FIRE1", "FIRE2", "FIRE3"):
+            book.offer(obj(name, "4007.20N", "07520.40W"), "montco", 1000, hold=name == "FIRE2", dup="TRAF9" if name == "FIRE2" else "")
+        for key, _packet, _why in book.due(1000):
+            book.mark_sent(key, 1000)
+        book.records["FIRE3    "]["seen"] = 0
+        book.expire(8000, 7200)
+        book.save()
+        names = [o["name"] for o in json.loads(self.get("/api/public")[1])["objects"]]
+        self.assertEqual(names, ["FIRE1"])
+        inside = {o["name"]: o["aprs_is"] for o in json.loads(self.get("/api/objects")[1])["objects"]}
+        self.assertEqual((inside["FIRE2"]["dup"], inside["FIRE3"]["stale"]), ("TRAF9", True))
+
+    def test_a_source_with_no_good_poll_for_ten_minutes_is_marked(self):
+        aprs_web.PUBLIC_CACHE[1] = None
+        aprs_web.ARGS.send = True
+        book = aprs_send.Book(CALL, os.path.join(self.dir.name, aprs_send.STATE_FILE))
+        book.max_quiet, book.dirty = 7200, True
+        book.save()
+        self.write_state("montco", {"FIRE1": {"lat": 40.12, "lon": -75.34, "comment": "BUILDING FIRE"}}, age=1800)
+        self.write_state("bucks", {"FIRE2": {"lat": 40.2, "lon": -75.1, "comment": "BUILDING FIRE"}})
+        self.write_state("custom", {}, age=86400)                                # only changes when edited: never late
+        src = {s["key"]: s for s in json.loads(self.get("/api/objects")[1])["sources"]}
+        self.assertEqual((src["montco"]["late"], src["bucks"]["late"], src["custom"]["late"]), (True, False, False))
+        self.assertAlmostEqual(src["montco"]["off_at"], src["montco"]["updated"] + 7200, places=0)
+        self.assertIsNone(src["bucks"]["off_at"])
+        public = {s["label"]: s["late"] for s in json.loads(self.get("/api/public")[1])["sources"]}
+        self.assertTrue(public["Montgomery County CAD"])
+
+
+class BulletinsForRadios(unittest.TestCase):
+    """/api/packets lists the bulletin of each critical object in the area asked for."""
+
+    def setUp(self):
+        PacketsNear.setUp(self)
+        sender = aprs_send.Sender(CALL, False, os.path.join(self.dir.name, "outbox"),
+                                  os.path.join(self.dir.name, aprs_send.STATE_FILE), None)
+        aprs_send.hand_over("nws", CALL, [obj("TORPHI01", "4007.20N", "07520.40W", "Tornado Warning til 9:15PM"),
+                                          obj("TORCTP02", "4100.00N", "07520.40W", "Tornado Warning til 9:30PM")],
+                            folder=sender.folder)
+        with open(os.devnull, "w") as quiet, contextlib.redirect_stdout(quiet):
+            sender.step(1000)
+
+    def near(self, **q):
+        return aprs_web.packets_near(dict({"lat": HOME[0], "lon": HOME[1], "miles": 25}, **q))[1]
+
+    def test_only_the_bulletin_for_an_object_in_the_area_is_listed(self):
+        b = self.near(via="w3xyz-10", min="critical")["bulletins"]
+        self.assertEqual([(x["slot"], x["object"]) for x in b], [("1", "TORPHI01")])
+        self.assertEqual(b[0]["info"], ":BLN1     :Tornado Warning til 9:15PM")
+        self.assertEqual(b[0]["tnc2"], f"{CALL}>APRS,TCPIP*::BLN1     :Tornado Warning til 9:15PM")
+        self.assertEqual(b[0]["rf"], f"}}{CALL}>APRS,TCPIP,W3XYZ-10*::BLN1     :Tornado Warning til 9:15PM")
+        self.assertEqual(len(self.near(miles=100)["bulletins"]), 2)
+        self.assertEqual(self.near(bulletins="0")["bulletins"], [])
+        self.assertNotIn("rf", self.near()["bulletins"][0])
+
+    def test_no_bulletin_is_listed_in_print_only_mode_or_once_the_object_has_ended(self):
+        aprs_web.ARGS.send = False
+        self.assertEqual(self.near()["bulletins"], [])
+        aprs_web.ARGS.send = True
+        book = aprs_send.Book(CALL, os.path.join(self.dir.name, aprs_send.STATE_FILE))
+        book.offer(obj("TORPHI01", "4007.20N", "07520.40W", live=False), "nws", 2000)
+        book.save()
+        self.assertEqual(self.near()["bulletins"], [])
 
 
 if __name__ == "__main__":

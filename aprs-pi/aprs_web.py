@@ -37,15 +37,24 @@ of each object and a count of each level, and its "Send to APRS-IS" choice sets 
 aprs_send.py sends (POST /api/settings {"min_level": "medium"}, kept in sender_settings.json).
 
 GET /api/packets?lat=..&lon=..&miles=25 lists our own object packets within that distance of a
-point, for a radio in that area to transmit (see README.txt, "Packets for radios").
+point, for a radio in that area to transmit (see README.txt, "Packets for radios").  It also lists
+("bulletins") the bulletin of each critical object in that area; bulletins=0 leaves them out.
 
 Every station that asks /api/packets is remembered for 7 days (api_clients.json): the callsign it
 gave, the point and radius it asked for, and when.  The page draws them as a "Radio gateways" layer,
-a label at the point and a circle of the radius; GET /api/clients is the same as JSON.
+a label at the point and a circle of the radius; GET /api/clients is the same as JSON.  An entry's
+popup has "Remove from this layer" (POST /api/forget-client); a station that asks again reappears.
 
-Behind a reverse proxy only /api/packets answers: a request the proxy passed on (it carries
-X-Forwarded-For) gets 403 for the page, the editor and every other address, because the page has no
-login.  --proxied all (or WEB_PROXIED=all) lifts that; use it only if the proxy asks for a login.
+GET /map is a read-only map for anyone: the objects that are on APRS-IS, their level and source, and
+nothing that can change them.  GET /api/public is its data (no gateways, services or edit history).
+
+Each source shows when it was last polled successfully.  One with no good poll for ten minutes is
+marked, with the time aprs_send.py will take its objects off APRS-IS (its maximum age, two hours).
+
+Behind a reverse proxy only /api/packets, /map and /api/public answer (and / shows the read-only
+map): a request the proxy passed on (it carries X-Forwarded-For) gets 403 for the page, the editor
+and every other address, because the page has no login.  --proxied all (or WEB_PROXIED=all) lifts
+that; use it only if the proxy asks for a login.
 
 GET /eink.png (or /eink.bmp) returns a black-and-white picture of the map and object
 list for an e-ink display, 272x792 by default; see aprs_eink.py for the options.
@@ -78,6 +87,8 @@ try:
 except ImportError:
     aprs_listen = None
 
+LATE_SECONDS = 600         # a source with no good poll for this long is marked on the page
+PUBLIC_CACHE_SECONDS = 15  # /api/public is rebuilt at most this often, however many people ask
 PRUNE_HOURS = 72           # forget corrections this long after their object is gone
 
 # state file -> (key, label, link to the original data)
@@ -191,7 +202,11 @@ def snapshot():
             suppressed.append({"name": name, "comment": o.get("comment", ""), "source_label": o.get("source_label", ""),
                                "ts": e.get("ts", 0)})
     live.sort(key=lambda r: r["name"])
-    return {"objects": live, "suppressed": sorted(suppressed, key=lambda r: -r["ts"]),
+    info = aprs_send.sender_info() if ARGS.send else {"max_quiet": 0.0, "bulletins": {}}
+    for s in sources.values():                             # feed health: is each source still being read?
+        s["late"] = s["key"] != "custom" and now - s["updated"] > LATE_SECONDS
+        s["off_at"] = s["updated"] + info["max_quiet"] if s["late"] and info["max_quiet"] else None
+    return {"bulletins": info["bulletins"], "max_quiet": info["max_quiet"],"objects": live, "suppressed": sorted(suppressed, key=lambda r: -r["ts"]),
             "sources": sorted(sources.values(), key=lambda s: s["label"]), "services": service_status(),
             "sending": bool(ARGS.send), "callsign": ARGS.callsign, "now": now,
             "levels": levels, "held": held, "min_level": aprs_priority.load_min_level()}
@@ -256,7 +271,16 @@ def packets_near(q):
     if limit > 0:
         out = out[:limit]
     counts = {lv: sum(1 for i in out if i["live"] and i["level"] == lv) for lv in aprs_priority.LEVELS}
-    return 200, {"callsign": ARGS.callsign, "centre": [lat, lon], "miles": miles, "min": minimum, "now": now,
+    bulletins = []                                # for critical objects in this area, whatever min= says
+    for b in aprs_send.bulletins_on_air() if ARGS.send and q.get("bulletins", "1") != "0" else []:
+        d = miles_between(lat, lon, b["lat"], b["lon"])
+        if d <= miles:
+            item = {"slot": b["slot"], "object": b["name"], "miles": round(d, 1), "sent": b["sent"],
+                    "info": b["packet"], "tnc2": f"{ARGS.callsign}>APRS,TCPIP*:{b['packet']}"}
+            if via:
+                item["rf"] = f"}}{ARGS.callsign}>APRS,TCPIP,{via}*:{b['packet']}"
+            bulletins.append(item)
+    return 200, {"bulletins": bulletins, "callsign": ARGS.callsign, "centre": [lat, lon], "miles": miles, "min": minimum, "now": now,
                  "sending": bool(ARGS.send), "count": len(out), "levels": counts, "packets": out}
 
 
@@ -330,15 +354,69 @@ def clients_snapshot(now=None):
     return {"now": now, "days": CLIENT_DAYS, "clients": sorted(rows, key=lambda c: -c["last"])}
 
 
+def forget_client(body):
+    """POST /api/forget-client: take one entry off the gateways layer ({callsign, lat, lon}), or every
+    entry ({"all": true}).  Nothing is blocked: a station that asks /api/packets again is listed again."""
+    with CLIENTS_LOCK:
+        if body.get("all") is True:
+            n = len(CLIENTS)
+            CLIENTS.clear()
+        else:
+            try:
+                key = (str(body.get("callsign", "")).upper()[:9], round(float(body["lat"]), 3), round(float(body["lon"]), 3))
+            except (KeyError, TypeError, ValueError):
+                return 400, {"error": "callsign, lat and lon of the entry are required"}
+            n = 1 if CLIENTS.pop(key, None) else 0
+    if not n:
+        return 404, {"error": "no such entry on the gateways layer (it may already be gone)"}
+    try:
+        save_clients()
+    except OSError as e:
+        return 500, {"error": f"removed, but {CLIENTS_FILE} could not be saved: {e}"}
+    what = "1 entry" if n == 1 else f"{n} entries"
+    return 200, {"ok": True, "removed": n,
+                 "message": f"Removed {what} from the gateways layer. A station that asks again will reappear."}
+
+
 # What a request that came through a reverse proxy may reach.  The page has no login and can edit,
 # delete and create objects that are then transmitted, so by default the outside world gets only
 # the packet list.  A proxy marks the requests it passes on with X-Forwarded-For (Caddy, nginx and
 # the like do); requests made straight to this machine carry no such header and get everything.
-PUBLIC_PATHS = ("/api/packets",)
+PUBLIC_PATHS = ("/api/packets", "/map", "/api/public")
+PUBLIC_CACHE, PUBLIC_LOCK = [0.0, None], threading.Lock()
+
+
+def proxied(handler):
+    return ARGS.proxied != "all" and bool(handler.headers.get("X-Forwarded-For"))
+
+
+def public_snapshot(now=None):
+    """GET /api/public: what anyone may see.  Only objects that are on APRS-IS (not held back, not taken
+    off), and only what APRS-IS already shows of them, plus the level and the source's name."""
+    now = time.time() if now is None else now
+    with PUBLIC_LOCK:
+        if PUBLIC_CACHE[1] is not None and 0 <= now - PUBLIC_CACHE[0] < PUBLIC_CACHE_SECONDS:
+            return PUBLIC_CACHE[1]
+        snap = snapshot()
+        out = []
+        for o in snap["objects"]:
+            t = o.get("aprs_is") or {}
+            if t.get("held") or t.get("stale"):
+                continue
+            out.append({"name": o["name"], "lat": round(o["lat"], 5), "lon": round(o["lon"], 5),
+                        "comment": o["comment"], "level": o["level"], "score": o["score"],
+                        "source": o["source"], "source_label": o["source_label"], "source_url": o["source_url"],
+                        "shape": o.get("shape"), "updated": o["updated"]})
+        out.sort(key=lambda o: (-o["score"], o["name"]))
+        levels = {lv: sum(1 for o in out if o["level"] == lv) for lv in aprs_priority.LEVELS}
+        sources = [{"label": s["label"], "updated": s["updated"], "late": s["late"]} for s in snap["sources"]]
+        PUBLIC_CACHE[:] = [now, {"callsign": ARGS.callsign, "now": now, "count": len(out), "levels": levels,
+                                 "sources": sources, "objects": out}]
+        return PUBLIC_CACHE[1]
 
 
 def allowed(handler, path):
-    if ARGS.proxied == "all" or not handler.headers.get("X-Forwarded-For"):
+    if not proxied(handler):
         return True
     return handler.command == "GET" and path in PUBLIC_PATHS
 
@@ -583,15 +661,21 @@ class Handler(BaseHTTPRequestHandler):
         return {k: v[-1] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()}
 
     def refuse(self):
-        self.reply(403, {"error": "only /api/packets is available at this address"})
+        self.reply(403, {"error": "only /map, /api/public and /api/packets are available at this address"})
 
     def do_GET(self):
         p = self.path.split("?")[0]
         p = p.rstrip("/") or "/"
+        if p == "/" and proxied(self):                   # from outside, the front page is the read-only map
+            p = "/map"
         if not allowed(self, p):
             return self.refuse()
         if p in ("/", "/index.html"):
             self.reply(200, PAGE.encode(), "text/html; charset=utf-8")
+        elif p == "/map":
+            self.reply(200, PUBLIC_PAGE.encode(), "text/html; charset=utf-8")
+        elif p == "/api/public":
+            self.reply(200, public_snapshot())
         elif p == "/api/objects":
             self.reply(200, snapshot())
         elif p == "/api/packets":
@@ -601,7 +685,7 @@ class Handler(BaseHTTPRequestHandler):
                 note_client(q, payload, (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip(),
                             self.headers.get("User-Agent", ""))
             if code == 200 and q.get("format") == "text":          # one packet per line, ready to transmit
-                lines = [i.get("rf") or i["tnc2"] for i in payload["packets"]]
+                lines = [i.get("rf") or i["tnc2"] for i in payload["bulletins"] + payload["packets"]]
                 return self.reply(200, ("\n".join(lines) + "\n" if lines else "").encode("ascii", "replace"),
                                   "text/plain; charset=us-ascii")
             self.reply(code, payload)
@@ -658,11 +742,98 @@ class Handler(BaseHTTPRequestHandler):
                     else f"objects below {level} are held back, and taken off APRS-IS if they are on it")
             return self.reply(200, {"ok": True, "min_level": level,
                                     "message": f"Minimum level: {level}. From each script's next poll, {what}."})
+        if p == "/api/forget-client":               # take an entry off the gateways layer
+            return self.reply(*forget_client(body))
         try:
             code, payload = do_action(p[5:], body)
         except Exception as e:                      # keep the server alive whatever happens
             code, payload = 500, {"error": str(e)}
         self.reply(code, payload)
+
+
+PUBLIC_PAGE = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APRS Incident Feeder: live map</title>
+<script>(function(){var t;try{t=localStorage.getItem("aprs-theme")}catch(e){}
+ if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t;})();</script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--bg:#f4f5f7;--panel:#fff;--ink:#1c2330;--mute:#5b6472;--line:#dfe3ea;--accent:#1f5fd0;--hover:#f0f4fb;--field:#fff;--late:#c0362c;color-scheme:light}
+:root[data-theme=dark]{--bg:#0f1318;--panel:#171c23;--ink:#e6e9ee;--mute:#98a2b3;--line:#2b333e;--accent:#5b9bff;--hover:#1f2731;--field:#10151b;--late:#ff7b6e;color-scheme:dark}
+:root[data-theme=dark] .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.9)}
+:root[data-theme=dark] .leaflet-popup-content-wrapper,:root[data-theme=dark] .leaflet-popup-tip,
+:root[data-theme=dark] .leaflet-bar a,:root[data-theme=dark] .leaflet-control-attribution{background:var(--panel);color:var(--ink);border-color:var(--line)}
+:root[data-theme=dark] .leaflet-container{background:#0b0e12}
+*{box-sizing:border-box}
+a{color:var(--accent)}
+html,body{height:100%;margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+#app{display:flex;height:100%}
+#side{width:340px;max-width:100%;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+#map{flex:1;min-width:0}
+header{padding:12px 14px;border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;gap:8px}
+h1{font-size:16px;margin:0 0 2px;flex:1}
+#theme{font:inherit;font-size:13px;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--ink);cursor:pointer}
+#meta,footer,.sr{color:var(--mute);font-size:12px}
+#cnt{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:6px;font-size:13px}
+.lv{display:inline-block;font-size:11px;font-weight:600;padding:0 6px;border-radius:8px;color:#fff;text-transform:capitalize}
+.critical{background:#c0362c}.high{background:#d9630b}.medium{background:#8a6700}.low{background:#6b7584}
+#find{margin:8px 14px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--field);color:var(--ink)}
+#list{flex:1;overflow:auto;border-top:1px solid var(--line)}
+.row{padding:8px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.row:hover{background:var(--hover)}
+.nm{font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace}
+.cm{overflow-wrap:anywhere}
+.late{color:var(--late)}
+footer{padding:8px 14px;border-top:1px solid var(--line)}
+@media (max-width:760px){#app{flex-direction:column-reverse}#side{width:100%;height:46%;border-right:0;border-top:1px solid var(--line)}}
+</style></head><body>
+<div id="app">
+ <div id="side">
+  <header><div class="top"><h1>APRS Incident Feeder</h1><button id="theme" onclick="flipTheme()" title="Switch between light and dark">Dark</button></div><div id="meta">loading…</div><div id="cnt"></div></header>
+  <input id="find" placeholder="Filter by name or text" oninput="draw()">
+  <div id="list"></div>
+  <footer><span id="src"></span><br>Read-only view of the objects <a id="fi" target="_blank" rel="noopener"></a> sends to APRS-IS,
+   taken from public dispatch, traffic and weather sources. It can be late or wrong: not for emergency use.</footer>
+ </div>
+ <div id="map"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id), COL={critical:"#c0362c",high:"#d9630b",medium:"#8a6700",low:"#6b7584"};
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hhmm=ts=>ts?new Date(ts*1000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}):"-";
+function showTheme(){$("theme").textContent=document.documentElement.dataset.theme==="dark"?"Light":"Dark";}
+function flipTheme(){const t=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=t;
+  try{localStorage.setItem("aprs-theme",t)}catch(e){} showTheme();}
+showTheme();
+const map=L.map("map").setView([40.12,-75.34],10);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap contributors"}).addTo(map);
+const layer=L.layerGroup().addTo(map); let data={objects:[],levels:{},sources:[]}, marks={}, first=true;
+function pop(o){return `<b>${esc(o.name)}</b> <span class="lv ${o.level}">${o.level}</span><br>${esc(o.comment)||"<i>(no text)</i>"}<br><span class="sr">${o.source_url?`<a href="${esc(o.source_url)}" target="_blank" rel="noopener">${esc(o.source_label)}</a>`:esc(o.source_label)} · read ${hhmm(o.updated)}</span>`;}
+function draw(){
+  const f=$("find").value.trim().toLowerCase(), shown=data.objects.filter(o=>!f||(o.name+" "+o.comment).toLowerCase().includes(f));
+  layer.clearLayers(); marks={};
+  for(const o of shown){
+    if(o.shape&&o.shape.points){const st={color:COL[o.level],weight:2,fillOpacity:.08,interactive:false};
+      (o.shape.closed?L.polygon(o.shape.points,st):L.polyline(o.shape.points,st)).addTo(layer);}
+    marks[o.name]=L.circleMarker([o.lat,o.lon],{radius:7,color:"#fff",weight:2,fillColor:COL[o.level],fillOpacity:1}).bindPopup(pop(o)).addTo(layer);}
+  $("list").innerHTML=shown.map(o=>`<div class="row" data-n="${esc(o.name)}"><span class="nm">${esc(o.name)}</span> <span class="lv ${o.level}">${o.level}</span><div class="cm">${esc(o.comment)}</div><div class="sr">${esc(o.source_label)}</div></div>`).join("")||'<div class="row sr">Nothing to show.</div>';
+  if(first&&shown.length){first=false; map.invalidateSize(); map.fitBounds(L.latLngBounds(shown.map(o=>[o.lat,o.lon])).pad(.1));}
+}
+$("list").onclick=e=>{const r=e.target.closest(".row"), m=r&&marks[r.dataset.n]; if(m){map.setView(m.getLatLng(),Math.max(map.getZoom(),13)); m.openPopup();}};
+async function load(){
+  try{const r=await fetch("/api/public"); data=await r.json();}catch(e){$("meta").textContent="Cannot reach the server."; return;}
+  $("meta").textContent=`${data.count} on APRS-IS · updated ${hhmm(data.now)}`;
+  $("cnt").innerHTML=["critical","high","medium","low"].map(l=>`<span><span class="lv ${l}">${l}</span> ${data.levels[l]||0}</span>`).join("");
+  $("fi").textContent=data.callsign; $("fi").href="https://aprs.fi/info/a/"+encodeURIComponent(data.callsign);
+  $("src").innerHTML="Sources: "+data.sources.map(s=>`<span class="${s.late?"late":""}">${esc(s.label)}${s.late?" (not answering since "+hhmm(s.updated)+")":""}</span>`).join(" · ");
+  draw();
+}
+load(); setInterval(load,60000);
+</script></body></html>
+"""
 
 
 PAGE = r"""<!doctype html>
@@ -712,7 +883,7 @@ header h1{font-size:16px;margin:0 0 2px}
 .src input{margin:0}
 .dot{width:11px;height:11px;border-radius:50%;flex:none}
 .src .n{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--mute)}
-.src small{color:var(--mute)}
+.src small{color:var(--mute)}.src small.bad{color:var(--danger)}
 #svc{padding:6px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mute);display:none}
 #svc b.bad{color:var(--danger)}
 #find{margin:8px 14px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;background:var(--field);color:var(--ink)}
@@ -814,13 +985,15 @@ function icon(o){ const sh=symHtml(o);
 function lvTag(o){return `<span class="lv ${o.level}" title="${esc((o.reasons||[]).join("; "))} (score ${o.score})">${o.level}</span>`;}
 function setMin(v){api("settings",{min_level:v});}
 function sentInfo(o){ if(!data.sending) return null; const t=o.aprs_is, now=Date.now()/1000;
-  if(t&&t.held) return {sent:`held back: rated ${o.level}, below the minimum (${data.min_level})`, again:""};
+  if(t&&t.stale) return {sent:"taken off APRS-IS: its source has been silent too long", again:"when the source answers again"};
+  if(t&&t.held) return {sent:t.dup?`held back: the same incident as ${esc(t.dup)}, which is sent instead`:`held back: rated ${o.level}, below the minimum (${data.min_level})`, again:""};
   if(!t||!t.sent) return {sent:t&&t.waiting?"waiting to be sent":"not sent yet", again:""};
   const sent=`${hhmm(t.sent)} (${ago(t.sent)})`;
   if(t.waiting) return {sent, again:"waiting to be sent now"};
   return {sent, again:t.again<=now?"on the next poll":`after ${hhmm(t.again)}, or sooner if it changes`}; }
 function sentShort(o){ const s=sentInfo(o); if(!s) return ""; const t=o.aprs_is;
-  if(t&&t.held) return " · held back (below minimum)";
+  if(t&&t.stale) return " · taken off (source silent)";
+  if(t&&t.held) return t.dup?` · held back (same as ${esc(t.dup)})`:" · held back (below minimum)";
   if(!t||!t.sent||t.waiting) return ` · ${s.again||s.sent}`;
   return ` · sent ${hhmm(t.sent)}, again ${t.again<=Date.now()/1000?"next poll":"after "+hhmm(t.again)}`; }
 function popup(o){const s=sentInfo(o); return `<div class="pop"><b>${esc(o.name)}</b>${lvTag(o)}${o.edited?'<span class="tag">edited</span>':""}<br>${esc(o.comment)||"<i>(no text)</i>"}<br>
@@ -839,15 +1012,16 @@ function visible(o){const q=$("find").value.trim().toLowerCase();
   return !hidden.has(o.source)&&(!q||o.name.toLowerCase().includes(q)||o.comment.toLowerCase().includes(q)||o.source_label.toLowerCase().includes(q));}
 
 function render(){
-  $("fi").innerHTML=`<a href="https://aprs.fi/info/a/${encodeURIComponent(data.callsign)}" target="_blank" rel="noopener">${esc(data.callsign)} on aprs.fi</a>`;
+  $("fi").innerHTML=`<a href="https://aprs.fi/info/a/${encodeURIComponent(data.callsign)}" target="_blank" rel="noopener">${esc(data.callsign)} on aprs.fi</a> · <a href="/map" target="_blank" rel="noopener">read-only map</a>`;
   $("meta").textContent=`${data.objects.length} live · callsign ${data.callsign} · ${data.sending?"sending to APRS-IS":"print-only (not transmitting)"} · ${hhmm(data.now)}`;
   $("srcs").innerHTML=data.sources.map(s=>`<label class="src"><input type="checkbox" ${hidden.has(s.key)?"":"checked"} onchange="toggle(${js(s.key)},this.checked)">
-    <span class="dot" style="background:${colorOf(s.key)}"></span><span>${esc(s.label)} <small>· polled ${hhmm(s.updated)}</small></span><span class="n">${s.count}</span></label>`).join("")||'<span class="hint">No state files found yet.</span>';
+    <span class="dot" style="background:${colorOf(s.key)}"></span><span>${esc(s.label)} <small${s.late?' class="bad"':""}>· ${s.late?`no good poll since ${hhmm(s.updated)} (${ago(s.updated)})${s.off_at?"; its objects come off APRS-IS "+(s.off_at<=data.now?"now":"at "+hhmm(s.off_at)):""}`:"polled "+hhmm(s.updated)}</small></span><span class="n">${s.count}</span></label>`).join("")||'<span class="hint">No state files found yet.</span>';
   const LV=["critical","high","medium","low"], lv=data.levels||{};
   $("imp").innerHTML=`<b>Importance</b><div class="cnt">${LV.map(l=>`<span><span class="lv ${l}">${l}</span> ${lv[l]||0}</span>`).join("")}</div>
     <label>Send to APRS-IS: <select onchange="setMin(this.value)">${[["low","everything"],["medium","medium and above"],["high","high and above"],["critical","critical only"]]
       .map(([v,t])=>`<option value="${v}"${data.min_level===v?" selected":""}>${t}</option>`).join("")}</select></label>
-    ${data.sending?(data.held?`<br><small>${data.held} held back, not on APRS-IS</small>`:""):"<br><small>print-only mode: nothing is sent</small>"}`;
+    ${data.sending?(data.held?`<br><small>${data.held} held back, not on APRS-IS</small>`:""):"<br><small>print-only mode: nothing is sent</small>"}
+    ${Object.keys(data.bulletins||{}).length?`<br><small>Bulletins on APRS-IS: ${Object.entries(data.bulletins).map(([k,v])=>`BLN${esc(k)} for ${esc(v)}`).join(", ")}</small>`:""}`;
   const sv=data.services.filter(s=>s.state&&s.state!=="STOPPED");
   $("svc").style.display=sv.length?"block":"none";
   $("svc").innerHTML="Services: "+sv.map(s=>`<b class="${s.state==="RUNNING"?"":"bad"}" title="${esc(s.note||"")}">${esc(s.service)} ${esc(s.state.toLowerCase())}</b>`).join(" · ");
@@ -956,8 +1130,14 @@ async function loadClients(){
 <span class="k">Least important level:</span> ${esc(c.min)} · ${c.listed} packet(s) in its last list<br>
 <span class="k">Last asked:</span> ${hhmm(c.last)} (${ago(c.last)}) · ${c.count} request(s) since ${new Date(c.first*1000).toLocaleString()}<br>
 <span class="k">From:</span> ${esc(c.address||"?")} · ${esc(c.agent||"")}<br>
-<span class="k">The callsign is what the request gave; it is not checked.</span></div>`,{maxWidth:340})
+<span class="k">The callsign is what the request gave; it is not checked.</span>
+<div class="btns"><button class="del" onclick="forgetGw(${js(c.callsign)},${c.lat},${c.lon})">Remove from this layer</button><button onclick="forgetGw(null)">Remove all ${d.clients.length}</button></div></div>`,{maxWidth:340})
      .bindTooltip(`${name} · ${c.miles} mi · ${c.active?"asking now":"last asked "+ago(c.last)}`).addTo(gwLayer); }
+}
+// Take one entry (or, with no callsign, every entry) off the gateways layer.  A station that asks again comes back.
+async function forgetGw(call,lat,lon){
+  if(call===null&&!confirm("Remove every entry from the radio gateways layer?")) return;
+  if(await api("forget-client",call===null?{all:true}:{callsign:call,lat,lon})){map.closePopup(); loadClients();}
 }
 function pref(k,d){try{const v=localStorage.getItem(k);return v===null?d:v;}catch(e){return d;}}
 $("msgbox").open=pref("aprs-msgs","1")==="1";

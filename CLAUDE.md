@@ -31,17 +31,21 @@ with the code.
 - **One sender.** Only `aprs-pi/aprs_send.py` logs in to APRS-IS to send. Feed scripts and the web
   editor hand packets to it with `aprs_send.Outbox` (files in `data/outbox/`); never add another
   sending connection. It sends an object when it is new, changed or killed, or last sent 26 minutes
-  or more ago, and only acts on what a script hands over.
+  or more ago. On its own account it does three things only: kills an object nobody has handed
+  over for 2 hours, holds back the less important of two reports of one crash (county dispatch
+  against a road agency), and sends a bulletin for a critical object.
 - **Importance rules live in one file**, `aprs-pi/aprs_priority.py` (levels critical, high, medium,
   low). The sender's minimum level, the web map and `/api/packets` all use it; change the rules
   there and add a case to `tests/test_priority.py`.
-- **The Pi's web service is public only at `/api/packets`.** `https://aprs-incidents.phlm.sh` is a
+- **The Pi's web service is public only at `/api/packets`, `/map` and `/api/public`** (the
+  read-only map and its data; nothing there may change anything or show gateways or services). `https://aprs-incidents.phlm.sh` is a
   reverse proxy in front of it; requests it passes on (they carry `X-Forwarded-For`) get 403 for
   everything else, because the page has no login and its edits are transmitted. Any new address
   added to `aprs_web.py` is internal unless it is deliberately added to `PUBLIC_PATHS`.
 - **APRS object rules:** names at most 9 characters and stable from poll to poll; comments fitted to
   `COMMENT_LENGTH` (67, or 43 for strict clients); an object that is no longer wanted is killed
-  (`_` instead of `*`), never just abandoned; a failed fetch kills nothing.
+  (`_` instead of `*`), never just abandoned; a failed fetch kills nothing (the sender's maximum age
+  takes a silent source's objects off after 2 hours).
 - **The map server's `CALLSIGN` needs its own SSID** (e.g. `-13`): APRS-IS holds back packets from the
   callsign a client logs in as, so sharing K3YLE-15 hides the owner's own objects.
 - Plain, specific wording in README files, log messages and the web pages.

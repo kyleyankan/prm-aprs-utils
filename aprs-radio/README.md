@@ -96,6 +96,15 @@ The defaults are deliberately small, because a shared 1200 baud channel fills qu
 | `--refresh` | 30 | minutes before an unchanged object is sent again (never less than 10) |
 | `--path` | none | digipeater path, such as `WIDE2-1` |
 | `--kiss-port` | 0 | which radio to use on a TNC with more than one |
+| `--no-bulletins` | off | do not transmit bulletins |
+
+**Bulletins.** When an object rated critical (a tornado warning, an entrapment, an explosion) is
+inside your radius, the feeder also lists a general bulletin with its text, and this script
+transmits it: `W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*::BLN1     :Tornado Warning til 9:15PM`.
+That reaches radios that show messages but no map. A bulletin goes out when it is new or its
+text changed and again every `--refresh` minutes, after any kills and before the objects, and it
+counts towards `--max-per-poll`. It is sent whatever `--min` says. There is nothing to kill when
+it ends; it is simply no longer sent. The feeder uses at most three at a time (BLN1 to BLN3).
 
 On Direwolf, a `KISSPORT` line with no channel number serves every channel, and `--kiss-port` is
 then the Direwolf channel to transmit on (`--kiss-port 0` for `CHANNEL 0`). A `KISSPORT` line that
