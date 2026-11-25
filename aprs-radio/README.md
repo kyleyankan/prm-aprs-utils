@@ -153,22 +153,20 @@ W3XYZ-10>APZIFD:}K3YLE-15>APRS,TCPIP,W3XYZ-10*:;FIRE7K2QX*241740z4007.80N/07519.
 ## Running it all the time
 
 What was transmitted is kept in `aprs_radio_state.json` (`--state-file`), so stopping and starting
-does not send everything again. To run it at boot on a Linux machine, a systemd unit along these
-lines works:
+does not send everything again.
 
-```ini
-[Unit]
-Description=Incident Feeder RF gateway
-After=network-online.target
+**As a service on Linux.** `systemd/install.sh` installs the script as a systemd service that starts
+at boot, restarts after a crash and reads its settings from `/etc/aprs-radio/aprs-radio.conf`.
+[INSTALL.md](INSTALL.md) walks through installing and configuring it:
 
-[Service]
-WorkingDirectory=/home/pi/aprs-radio
-ExecStart=/usr/bin/python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --transmit
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
+```sh
+sudo sh systemd/install.sh
 ```
+
+**Settings in a file.** `--config FILE` reads the options from a file instead of the command line,
+one `name = value` per line, named like the options without the dashes (`max-objects = 5`). On/off
+options take `yes` or `no`. Anything also given on the command line wins. The service uses this;
+`systemd/aprs-radio.conf.example` is a commented starting point.
 
 If you stop it for good while objects are on the air, they are not killed; they fade from maps as
 clients time them out. To take them off at once, run it one more time with the same settings and

@@ -1,0 +1,67 @@
+# Settings for the aprs-radio service.
+#
+# One setting per line: name = value. Lines starting with # are ignored.
+# After changing this file:  sudo systemctl restart aprs-radio
+# Every option of aprs_radio.py can be set here; see /opt/aprs-radio/README.md.
+
+# ---- Required -----------------------------------------------------------------
+
+# The Incident Feeder to ask. Its operator gives you this address.
+server = https://aprs-incidents.phlm.sh
+
+# YOUR callsign and SSID: the station that transmits. The service will not start
+# while this is N0CALL.
+callsign = N0CALL
+
+# The centre of the area you want to cover, in decimal degrees (west and south are
+# negative), and the radius around it in miles.
+lat = 40.12
+lon = -75.34
+miles = 10
+
+# ---- Transmitting ---------------------------------------------------------------
+
+# no  = only write to the log what would be sent. Start here and read the log.
+# yes = really key the radio through the TNC.
+transmit = no
+
+# ---- Your TNC: use ONE of the two ------------------------------------------------
+
+# A software TNC such as Direwolf, as host:port. 127.0.0.1:8001 is Direwolf on
+# this machine with its default KISS port.
+kiss-tcp = 127.0.0.1:8001
+
+# A hardware TNC in KISS mode on a serial port. Remove the # from both lines.
+# kiss-serial = /dev/ttyUSB0
+# baud = 9600
+
+# Which radio to use on a TNC with more than one (Direwolf: the CHANNEL number).
+kiss-port = 0
+
+# ---- What to carry ------------------------------------------------------------------
+
+# Digipeater path. Leave empty to send direct, which is right for most stations.
+path =
+
+# Least important level to carry: low, medium, high or critical.
+# min = medium
+
+# Most objects kept on the air at once, and most packets sent per poll.
+# max-objects = 10
+# max-per-poll = 6
+
+# yes = carry everything in the radius, slowly, most important first.
+# auto = no
+# burst = 2
+
+# yes = do not transmit bulletins for critical objects.
+# no-bulletins = no
+
+# ---- Timing (the defaults suit a shared 1200 baud channel) -----------------------------
+
+# Seconds between polls of the feeder (minimum 60).
+# poll = 120
+# Minutes before an unchanged object is sent again (minimum 10).
+# refresh = 30
+# Seconds between two transmissions (minimum 2).
+# gap = 8

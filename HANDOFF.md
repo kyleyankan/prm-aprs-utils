@@ -282,6 +282,14 @@ file that say `aprs-pi/` mean the same folder.
      queue (kills, bulletins, then objects by level; new or changed before repeats; longest
      silent first). Low objects go out only when nothing more important waits. Tested with unit
      tests and a print-only run against the live feeder; not run on the air.
+   - **Radio script as a systemd service, 2026-11-25** (`aprs_radio.py` 1.3): `--config FILE`
+     reads `name = value` settings (the command line wins); a wrong file exits with code 2.
+     `aprs-radio/systemd/` holds the unit, an example settings file, `install.sh` and
+     `uninstall.sh`; `aprs-radio/INSTALL.md` is the operator's guide. The unit runs as a systemd
+     dynamic user with its state in `/var/lib/aprs-radio`, restarts on failure but not on exit
+     code 2, and the example ships with `transmit = no`. Tried in a Debian 12 container running
+     systemd (install, refusal of N0CALL, a print-only run against a fake feeder, update,
+     uninstall); not tried on a Raspberry Pi, with a serial TNC, or on the air.
 6. **Sharpen the importance rules where sources give real severity**: PennDOT (fatality, hazmat
    flags) and NWS (severity, certainty) could pass those through instead of relying on the text.
 7. Offered but not built: colour the owner's own objects by feed in the map server (recognise

@@ -69,6 +69,7 @@ python3 aprs_objects.py --callsign K3YLE-15 --aprsfi-key KEY   # find/kill lefto
 # aprs-radio (prints only; --transmit keys a radio through a KISS TNC, so never add it in a test)
 python3 aprs-radio/aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34 --once
 cd aprs-radio/tests && python3 -m unittest test_radio
+sudo sh aprs-radio/systemd/install.sh   # on a Linux machine: install it as a systemd service (settings in /etc/aprs-radio/aprs-radio.conf, see aprs-radio/INSTALL.md)
 
 # aprs-mapimage
 cd aprs-mapimage && cp .env.example .env && docker compose up -d --build

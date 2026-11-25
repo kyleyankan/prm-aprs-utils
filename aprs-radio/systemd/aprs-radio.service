@@ -1,0 +1,40 @@
+# Incident Feeder RF gateway: transmits the feeder's objects near you through a KISS TNC.
+# Installed by install.sh as /etc/systemd/system/aprs-radio.service.
+# Settings live in /etc/aprs-radio/aprs-radio.conf; do not put them on the ExecStart line.
+[Unit]
+Description=Incident Feeder RF gateway (aprs-radio)
+Documentation=file:///opt/aprs-radio/INSTALL.md
+Wants=network-online.target
+# Start after Direwolf when it runs as a service on this machine (ignored when it does not).
+After=network-online.target direwolf.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -u /opt/aprs-radio/aprs_radio.py --config /etc/aprs-radio/aprs-radio.conf --state-file /var/lib/aprs-radio/state.json
+
+# Come back after a crash or a lost network, but not after a settings mistake:
+# the script exits with code 2 when the settings file is wrong, and retrying cannot fix that.
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=2
+
+# Runs as its own unprivileged user, created by systemd for as long as the service runs.
+# What was transmitted is remembered in /var/lib/aprs-radio (kept between restarts).
+DynamicUser=yes
+StateDirectory=aprs-radio
+ConfigurationDirectory=aprs-radio
+
+# It needs the network, the settings file and (for a hardware TNC) one serial port; nothing else.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

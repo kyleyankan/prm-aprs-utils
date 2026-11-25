@@ -262,6 +262,41 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual((a.poll, a.gap, a.refresh), (60, 2.0, 10.0))     # floors that protect the channel
 
 
+class SettingsFile(unittest.TestCase):
+    def write(self, text):
+        f = tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False, encoding="utf-8")
+        f.write(text)
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def refused(self, argv):
+        with self.assertRaises(SystemExit) as stop, open(os.devnull, "w") as null:
+            old, sys.stderr = sys.stderr, null
+            try:
+                R.parse_args(argv)
+            finally:
+                sys.stderr = old
+        self.assertEqual(stop.exception.code, 2)      # the service does not restart on this code
+
+    def test_a_file_supplies_every_setting_and_the_command_line_wins(self):
+        path = self.write("# my station\n\nserver = http://127.0.0.1:1\ncallsign = w3xyz-10\n"
+                          "lat = 40.12\nlon = -75.34\nmiles = 15\nmax_objects = 4\npath = \"WIDE2-1\"\n"
+                          "kiss-tcp = 127.0.0.1:8001\ntransmit = no\nauto = yes\nkiss-serial =\n")
+        a = R.parse_args(["--config", path])
+        self.assertEqual((a.callsign, a.lat, a.lon, a.miles, a.max_objects, a.path), (ME, 40.12, -75.34, 15, 4, "WIDE2-1"))
+        self.assertEqual((a.transmit, a.auto, a.kiss_serial, a.min), (False, True, None, "low"))
+        b = R.parse_args(["--config", path, "--miles", "5", "--transmit"])
+        self.assertEqual((b.miles, b.transmit), (5, True))
+
+    def test_mistakes_in_the_file_are_refused_with_exit_code_2(self):
+        good = "server = http://127.0.0.1:1\ncallsign = W3XYZ-10\nlat = 40\nlon = -75\n"
+        for bad in ("transmit = maybe\n", "colour = red\n", "just some words\n", "config = other.conf\n"):
+            self.refused(["--config", self.write(good + bad)])
+        self.refused(["--config", self.write(good.replace("W3XYZ-10", "N0CALL"))])    # the example's callsign
+        self.refused(["--config", "/nonexistent/aprs-radio.conf"])
+
+
 @unittest.skipUnless(hasattr(os, "openpty"), "needs a pseudo-terminal")
 class Serial(unittest.TestCase):
     def test_serial_port_is_set_raw_and_carries_the_frame(self):

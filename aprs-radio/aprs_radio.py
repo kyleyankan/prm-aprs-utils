@@ -3,6 +3,8 @@
 
   python3 aprs_radio.py --server https://aprs-incidents.phlm.sh --callsign W3XYZ-10 --lat 40.12 --lon -75.34
   ... add --transmit to really send; without it the packets are only printed.
+  ... or keep the settings in a file: --config aprs-radio.conf (see systemd/aprs-radio.conf.example).
+      INSTALL.md shows how to run it as a systemd service.
 
 Every --poll seconds (default 120) it asks the feeder's /api/packets for the objects within
 --miles of your position, rated at least --min, and sends the ones that need sending to a
@@ -63,7 +65,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "1.2"
+VERSION = "1.3"
 TOCALL = "APZIFD"                 # APZ... = experimental software; change with --tocall
 USER_AGENT = f"aprs-radio/{VERSION} (Incident Feeder RF gateway)"
 CALL_OK = re.compile(r"[A-Z0-9]{1,6}(-([0-9]|1[0-5]))?")
@@ -431,8 +433,53 @@ class Gateway:
             self.tnc.close()
 
 
+YES, NO = ("yes", "true", "on", "1"), ("no", "false", "off", "0", "")
+
+
+def config_arguments(path, ap):
+    """Read a settings file and return it as command-line arguments.
+
+    One setting per line, "name = value", named like the options without the dashes
+    ("max-objects = 5"; "max_objects" works too).  Options that take no value (transmit, auto,
+    no-bulletins, once) are switched with yes or no.  Blank lines and lines starting with # are
+    skipped."""
+    options = {s: act for act in ap._actions for s in act.option_strings}
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as e:
+        ap.error(f"cannot read the settings file {path}: {e.strerror or e}")
+    out = []
+    for number, line in enumerate(lines, 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        where = f"{path}, line {number}"
+        name, equals, value = line.partition("=")
+        if not equals:
+            ap.error(f"{where}: expected \"name = value\", got {line!r}")
+        option = "--" + name.strip().lower().replace("_", "-")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        act = options.get(option)
+        if act is None or option in ("--config", "--help"):
+            ap.error(f"{where}: there is no setting called {name.strip()!r}")
+        if act.nargs == 0:                      # an on/off option
+            if value.lower() in YES:
+                out.append(option)
+            elif value.lower() not in NO:
+                ap.error(f"{where}: {name.strip()} must be yes or no, not {value!r}")
+        elif value:
+            out.append(f"{option}={value}")     # the = form keeps "lon = -75.34" from reading as an option
+    return out
+
+
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Transmit the Incident Feeder's objects near you through a KISS TNC")
+    ap.add_argument("--config", metavar="FILE",
+                    help="read settings from this file (name = value lines); options given on the "
+                         "command line as well win over the file")
     ap.add_argument("--server", required=True, help="the feeder's address, e.g. https://aprs-incidents.phlm.sh")
     ap.add_argument("--callsign", required=True, help="YOUR callsign-SSID, the station that transmits (e.g. W3XYZ-10)")
     ap.add_argument("--lat", type=float, required=True, help="latitude of the centre of your area, e.g. 40.12")
@@ -463,6 +510,12 @@ def parse_args(argv=None):
                     help="do not transmit the bulletins the feeder sends for critical objects in your area")
     ap.add_argument("--state-file", default="aprs_radio_state.json", help="where what was transmitted is remembered")
     ap.add_argument("--once", action="store_true", help="poll once and exit")
+    argv = sys.argv[1:] if argv is None else list(argv)
+    first = argparse.ArgumentParser(add_help=False)
+    first.add_argument("--config")
+    chosen, _ = first.parse_known_args([x for x in argv if x not in ("-h", "--help")])
+    if chosen.config:
+        argv = config_arguments(chosen.config, ap) + argv      # the command line comes last, so it wins
     a = ap.parse_args(argv)
     a.callsign, a.tocall = a.callsign.upper(), a.tocall.upper()
     if not CALL_OK.fullmatch(a.callsign):
