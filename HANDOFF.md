@@ -6,7 +6,7 @@ is, what was tried and dropped, and what is still open.
 
 ## 1. Goals
 
-**aprs-pi — public incidents as APRS objects.** Put live public-safety, traffic and weather
+**aprs-incident-feeder — public incidents as APRS objects.** Put live public-safety, traffic and weather
 information on the APRS map around southeastern Pennsylvania and South Jersey, as objects sent from
 **K3YLE-15**: county fire/EMS/traffic calls, state 511 incidents, closures and road work, and NWS
 warnings and storms. Each incident gets a stable name and a meaningful symbol, its text is kept
@@ -18,7 +18,7 @@ fixed address: stations, objects, paths, messages, over a real base map, anywher
 
 ## 2. Architecture
 
-### aprs-pi (Raspberry Pi, no Docker)
+### aprs-incident-feeder (Raspberry Pi, no Docker)
 
 ```
 feeds ──> aprs_<feed>.py (one process each) ──> data/outbox/ ──> aprs_send.py ──> APRS-IS
@@ -61,7 +61,7 @@ a port, it needs no retry logic in the scripts, and hand-overs survive a restart
 Still on their own connections: the receive-only listener in `aprs_web.py` (`aprs_listen.py`) and
 the hand-run cleanup tool `aprs_objects.py`.
 
-Added the same day, all described in `aprs-pi/ARCHITECTURE.md`:
+Added the same day, all described in `aprs-incident-feeder/ARCHITECTURE.md`:
 - **Send times on the web map**: when each object last went to APRS-IS and when it is sent again.
 - **`/api/packets`**: the packets last sent within a radius of a point, so a program beside a radio
   can put them on RF. `via=CALL` gives third-party form, chosen so this station stays the sender and
@@ -108,7 +108,7 @@ Settings (`.env`): `APRS_HOME`, `LISTEN_MILES`, `CALLSIGN` (own SSID), `TZ`, `NW
 
 - **Standard library only, both projects.** Simple installs on a Pi and a tiny Docker image; the
   renderer writes PNG/BMP itself.
-- **aprs-pi runs directly on the Pi; aprs-mapimage is Docker.** The owner dropped Docker for the feed
+- **aprs-incident-feeder runs directly on the Pi; aprs-mapimage is Docker.** The owner dropped Docker for the feed
   scripts ("deploy it ourselves onto a Raspberry Pi"); the map server was asked for as a container.
 - **Stable names are the core rule.** Re-sending a name updates the marker; a new name makes a ghost.
   IDs where feeds have them, deterministic hashes where they don't, salted in sorted order on collisions.
@@ -159,10 +159,10 @@ Settings (`.env`): `APRS_HOME`, `LISTEN_MILES`, `CALLSIGN` (own SSID), `TZ`, `NW
 ## 5. Current state
 
 Both projects are working and deployed by the owner: the feed scripts on the Pi (last packaged as
-`aprs-pi-1119.zip`, which this folder matches), the map server at https://aprs.phlm.sh/.
+`aprs-incident-feeder-1119.zip`, which this folder matches), the map server at https://aprs.phlm.sh/.
 
 ```
-aprs-pi/          aprs_ctl.sh, install-service.sh, README.txt, ARCHITECTURE.md, 6 feed scripts,
+aprs-incident-feeder/          aprs_ctl.sh, install-service.sh, README.txt, ARCHITECTURE.md, 6 feed scripts,
                   aprs_send.py, aprs_priority.py, aprs_web.py, aprs_eink.py, aprs_listen.py,
                   aprs_overrides.py, aprs_objects.py, tests/ (test_send, test_priority, test_web)
 aprs-mapimage/    Dockerfile, docker-compose.yml, .env.example, .dockerignore, README.md,
@@ -186,6 +186,12 @@ Later the same day the send times, `/api/packets`, the importance ratings and th
 were deployed too. The minimum was left at "everything"; raising it has only been tried in tests.
 With the traffic of that day, "medium and above" would kill about 160 roadwork objects at once.
 
+**Reorganised 2026-11-25.** The repository is now called `prm-aprs-utils` and each folder is its
+own project: `aprs-pi/` became `aprs-incident-feeder/`, and the article and slide deck moved to
+`aprs-incident-feeder/docs/`. Nothing moved on the Pi: it is still deployed in `~/aprs-pi`,
+so a deploy copies from `aprs-incident-feeder/` here into `~/aprs-pi/` there. Older entries in this
+file that say `aprs-pi/` mean the same folder.
+
 ## 6. Remaining tasks
 
 1. **Check the live paths the development sandbox could not reach**: aprs.fi lookups (needs
@@ -194,18 +200,18 @@ With the traffic of that day, "medium and above" would kill about 160 roadwork o
 2. **Map server sign-in**: the credentials the owner expected were rejected by the live server
    (pictures with the key worked). Check `ADMIN_USER`/`ADMIN_PASSWORD` in the server's `.env`.
 3. **Done 2026-11-24: shared modules consolidated.** `aprs-mapimage/app/aprs_eink.py` and
-   `aprs_listen.py` are the masters; `aprs-pi/` holds byte-identical copies made by
+   `aprs_listen.py` are the masters; `aprs-incident-feeder/` holds byte-identical copies made by
    `aprs-mapimage/tools/sync_shared.py` (`--check` fails if they differ; `tests/shared/` runs it).
    Symlinks were rejected (a broken link silently turns off pictures and listening, because
    `aprs_web.py` ignores the `ImportError`), and so was a top-level `shared/` folder (Docker would
-   have to build from the repo root, putting `aprs-pi/aprs.env` in the build context).
+   have to build from the repo root, putting `aprs-incident-feeder/aprs.env` in the build context).
    What changes on the Pi once the new copies are installed there: `/api/aprs` gains `areas`;
    `?title=` works; accented town names lose the accent instead of showing `?`; county lines are no
    longer drawn on very wide views (beyond about 226 miles on the default e-ink picture, about 390
    on colour). `aprs_heard.json` loads in both directions, so the old files can be put back.
    **Not yet copied to the Pi.**
 4. **Turn `aprs-mapimage/tests/` into a real test suite** (pytest or unittest, ports chosen
-   automatically, no fixed sandbox paths). aprs-pi has unittest files for the sender, the importance
+   automatically, no fixed sandbox paths). aprs-incident-feeder has unittest files for the sender, the importance
    rules and the web API (`tests/`, fake APRS-IS on localhost); the feed scripts have none. Known harness problems:
    `follow/run.py` and `history/run.py` exit 0 even when an assertion fails (read the log for
    `PHASE OK`); `signin`, `coast`, `marsh` and `world` contain no assertions; `test_server.py` needs

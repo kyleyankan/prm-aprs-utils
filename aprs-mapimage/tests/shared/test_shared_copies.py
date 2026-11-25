@@ -1,4 +1,4 @@
-"""The aprs-pi copies of the shared modules must be identical to the masters in aprs-mapimage/app/.
+"""The aprs-incident-feeder copies of the shared modules must be identical to the masters in aprs-mapimage/app/.
 
   python3 -m unittest test_shared_copies       (from this folder; reads files only)
 """

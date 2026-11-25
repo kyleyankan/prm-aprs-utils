@@ -1,4 +1,4 @@
-# How the aprs-pi stack works
+# How the aprs-incident-feeder stack works
 
 This folder turns public dispatch, traffic and weather feeds into APRS objects on APRS-IS, sent
 under one callsign. It runs on a Raspberry Pi as eight small programs, all Python 3 standard

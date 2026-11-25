@@ -3,9 +3,9 @@ APRS object feeds - Raspberry Pi install
 Needs only Python 3.9+ (already on Raspberry Pi OS). No extra packages.
 
 1. Copy and unpack
-     scp aprs-pi.zip pi@raspberrypi.local:~
+     scp aprs-incident-feeder.zip pi@raspberrypi.local:~
      ssh pi@raspberrypi.local
-     unzip aprs-pi.zip && cd aprs-pi          (no unzip?  sudo apt install unzip)
+     unzip aprs-incident-feeder.zip && cd aprs-incident-feeder          (no unzip?  sudo apt install unzip)
 
 2. Configure
      ./aprs_ctl.sh init

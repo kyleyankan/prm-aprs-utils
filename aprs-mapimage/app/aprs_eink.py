@@ -53,7 +53,7 @@ Query options (all optional):
   zoom        2-4 = draw everything that many times larger (bigger text on big screens)
   dark        1 = dark background                    (colour picture only)
 
-Shared file: the master copy is aprs-mapimage/app/aprs_eink.py.  The copy in aprs-pi/
+Shared file: the master copy is aprs-mapimage/app/aprs_eink.py.  The copy in aprs-incident-feeder/
 is made from it by aprs-mapimage/tools/sync_shared.py; edit the master, then run that.
 """
 import array

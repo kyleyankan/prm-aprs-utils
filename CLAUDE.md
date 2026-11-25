@@ -1,13 +1,15 @@
 # CLAUDE.md
 
-Related amateur-radio (APRS) projects by K3YLE. Read `HANDOFF.md` for the history, the
-decisions behind the code and the open tasks before making changes. `aprs-pi/ARCHITECTURE.md`
+This repository is **prm-aprs-utils**: related amateur-radio (APRS) projects by K3YLE, one per
+folder. The feeder's folder is `aprs-incident-feeder/` (it was `aprs-pi/` until 2026-11-25, and on
+the Pi itself it is still deployed in `~/aprs-pi`). Read `HANDOFF.md` for the history, the
+decisions behind the code and the open tasks before making changes. `aprs-incident-feeder/ARCHITECTURE.md`
 explains how the Pi's services fit together and where each feed's data comes from; keep it in step
 with the code.
 
 | Folder | What it is | Where it runs |
 |---|---|---|
-| `aprs-pi/` | Scripts that turn county dispatch, 511 traffic, NWS weather and river gauge feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
+| `aprs-incident-feeder/` | Scripts that turn county dispatch, 511 traffic, NWS weather and river gauge feeds into APRS objects (sent as **K3YLE-15** by one sender, `aprs_send.py`), plus a supervisor, a web map/editor, an APRS-IS listener and e-ink/colour picture endpoints | A Raspberry Pi on the home network, copied over by hand (no Docker) |
 | `aprs-radio/` | One stand-alone script, `aprs_radio.py`, that other operators run: it polls the Pi's `/api/packets` and transmits the objects near them through their own KISS TNC | Anyone's machine beside a radio; nothing of ours runs it |
 | `aprs-mapimage/` | A stand-alone Docker service that listens to APRS-IS and draws map pictures (PNG/BMP) for e-paper and dashboards, with a builder web page and saved presets | Docker; live at https://aprs.phlm.sh/ (host port 8083 -> container 8080) |
 
@@ -17,7 +19,7 @@ with the code.
   Raspberry Pi OS; the Docker image is `python:3.12-slim` plus `tzdata`. If something seems to need a
   library, write it with the standard library (the PNG/BMP writer, the map renderer and the HTTP
   servers already are).
-- **Never commit or print secrets**: `aprs-pi/aprs.env`, `aprs-mapimage/.env`, API keys (Google,
+- **Never commit or print secrets**: `aprs-incident-feeder/aprs.env`, `aprs-mapimage/.env`, API keys (Google,
   aprs.fi), the PennDOT RCRS login, the map server's admin password or picture key. Credentials come
   from the environment / `aprs.env` only, never from the command line (it shows in `ps`).
 - **The owner's e-mail address is private.** Never put it in code, examples or docs, and never send it
@@ -28,13 +30,13 @@ with the code.
 - **Respect the data sources.** If a site refuses automated access, do not work around it.
   aprs.fi API: only on demand, answers cached (30 min default), back off after errors, a User-Agent
   with app name, version and home page, and a visible link crediting aprs.fi. No background polling.
-- **One sender.** Only `aprs-pi/aprs_send.py` logs in to APRS-IS to send. Feed scripts and the web
+- **One sender.** Only `aprs-incident-feeder/aprs_send.py` logs in to APRS-IS to send. Feed scripts and the web
   editor hand packets to it with `aprs_send.Outbox` (files in `data/outbox/`); never add another
   sending connection. It sends an object when it is new, changed or killed, or last sent 26 minutes
   or more ago. On its own account it does three things only: kills an object nobody has handed
   over for 2 hours, holds back the less important of two reports of one crash (county dispatch
   against a road agency), and sends a bulletin for a critical object.
-- **Importance rules live in one file**, `aprs-pi/aprs_priority.py` (levels critical, high, medium,
+- **Importance rules live in one file**, `aprs-incident-feeder/aprs_priority.py` (levels critical, high, medium,
   low). The sender's minimum level, the web map and `/api/packets` all use it; change the rules
   there and add a case to `tests/test_priority.py`.
 - **The Pi's web service is public only at `/api/packets`, `/map` and `/api/public`** (the
@@ -53,7 +55,7 @@ with the code.
 ## Commands
 
 ```sh
-# aprs-pi (on the Pi, from aprs-pi/)
+# aprs-incident-feeder (on the Pi, from aprs-incident-feeder/)
 ./aprs_ctl.sh init            # create aprs.env from defaults
 ./aprs_ctl.sh start|stop [svc]|restart [svc]|status
 ./aprs_ctl.sh logs nws -f
@@ -72,20 +74,20 @@ cd aprs-radio/tests && python3 -m unittest test_radio
 cd aprs-mapimage && cp .env.example .env && docker compose up -d --build
 cd aprs-mapimage/app && DATA_DIR=/tmp/mi APRS_HOME=40.12,-75.34 PORT=8790 python3 server.py   # without Docker
 python3 aprs-mapimage/tools/build_world.py <natural-earth geojson folder> aprs-mapimage/app/world.json.gz
-python3 aprs-mapimage/tools/sync_shared.py           # copy the shared modules into aprs-pi/
+python3 aprs-mapimage/tools/sync_shared.py           # copy the shared modules into aprs-incident-feeder/
 python3 aprs-mapimage/tools/sync_shared.py --check   # exit 1 if the two copies differ
 ```
 
 Tests: `aprs-mapimage/tests/README.md` (development harnesses with fake APRS-IS, fake map services
-and fake aprs.fi; run each from its own folder) and `aprs-pi/tests/test_priority.py`, `test_send.py`, `test_web.py`, `test_water.py` (unittest). Use a
+and fake aprs.fi; run each from its own folder) and `aprs-incident-feeder/tests/test_priority.py`, `test_send.py`, `test_web.py`, `test_water.py` (unittest). Use a
 made-up callsign such as `TEST-13` with a fake server: `--send` refuses `N0CALL`.
 
 ## Layout notes
 
 - `aprs_eink.py` (renderer) and `aprs_listen.py` (APRS-IS listener) are shared by both projects. The
-  master copies are in `aprs-mapimage/app/`; `aprs-pi/` holds byte-identical copies. Edit the master,
+  master copies are in `aprs-mapimage/app/`; `aprs-incident-feeder/` holds byte-identical copies. Edit the master,
   run `python3 aprs-mapimage/tools/sync_shared.py`, and commit both copies together. Never edit the
-  `aprs-pi/` copies directly. Anything changed in these two files must keep `aprs-pi/aprs_web.py` working.
+  `aprs-incident-feeder/` copies directly. Anything changed in these two files must keep `aprs-incident-feeder/aprs_web.py` working.
 - `aprs-mapimage/app/world.json.gz` is generated (Natural Earth, public domain); rebuild it with
   `tools/build_world.py`, don't edit it.
-- Runtime data lives in `aprs-pi/data/` and the map server's `/data` volume; never commit it.
+- Runtime data lives in `aprs-incident-feeder/data/` and the map server's `/data` volume; never commit it.

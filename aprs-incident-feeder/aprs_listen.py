@@ -22,7 +22,7 @@ first sends the last position of every station heard in about the last 30 minute
 backfill() reads that port briefly, keeps what lies inside the listening radius and
 disconnects.  It is best-effort: if no server offers the port, nothing is lost.
 
-Shared file: the master copy is aprs-mapimage/app/aprs_listen.py.  The copy in aprs-pi/
+Shared file: the master copy is aprs-mapimage/app/aprs_listen.py.  The copy in aprs-incident-feeder/
 is made from it by aprs-mapimage/tools/sync_shared.py; edit the master, then run that.
 """
 import math

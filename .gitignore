@@ -1,12 +1,12 @@
 # settings with credentials: never commit
-aprs-pi/aprs.env
+aprs-incident-feeder/aprs.env
 aprs-mapimage/.env
 .env
 
 # runtime data and logs
-aprs-pi/data/
-aprs-pi/logs/
-aprs-pi/run/
+aprs-incident-feeder/data/
+aprs-incident-feeder/logs/
+aprs-incident-feeder/run/
 data/
 
 # test output
